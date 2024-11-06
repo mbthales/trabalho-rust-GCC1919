@@ -1,15 +1,18 @@
-use csv::Reader;
-use csv::WriterBuilder;
-use std::fs::OpenOptions;
-use chrono::{Local};
-use uuid::{Uuid};
+use rusqlite::{Connection, Result};
+use std::io;
+use chrono::Local;
+use uuid::Uuid;
 
 //Create only to add to the Pool struct
 #[derive(Debug)]
 struct Vote {
+    id: Uuid,
     choice: String,
+    comment: String,
+    voting_power: i16,
+    create_date: i64,
+    poll_id: Uuid,
 }
-
 #[derive(Debug)]
 struct Poll {
     id: Uuid, //Could have used a sequential one but I find it easier
@@ -20,34 +23,95 @@ struct Poll {
     total_votes: i16,
 }
 
-fn main() {
-    let mut polls = vec![Poll::create_poll("Do you like Rust?", 7), Poll::create_poll("Do you like Python?", 3)];
+impl Vote {
+    fn vote_in_pool (conn: &Connection) -> Result<()> {
+        let mut vote = String::new();
+        let mut answer = String::new();
+        let mut comment = String::new();
     
-    println!("Added Polls: {:?}", polls);
+        println!("You vote? (y/n)");    
+        println!("Digit 'y' for yes and 'n' for no");
 
-    polls[0].edit_poll("Have you done the Hello World example?");
-    println!("\nPoll after edit: {:?}", polls);
-
-    // Get id to delete
-    let id_to_delete = polls[0].id;
-    delete_poll(&mut polls, id_to_delete);
-
-    println!("\nPoll after delete: {:?}", polls);
-
+        io::stdin()
+            .read_line(&mut vote)
+            .expect("Error");
     
-    let file_name = "bd.csv";
+        println!("You want to add a comment? (s/n)");
+        io::stdin()
+            .read_line(&mut answer)
+            .expect("Error");
     
-    csv_writer(file_name);
-    csv_reader(file_name);
+        if answer.trim() == "s" {
+            println!("Write your comment:");
+            io::stdin()
+                .read_line(&mut comment)
+                .expect("Error");
+        }
 
+        let vote = Vote {
+            id: Uuid::new_v4(),
+            choice: vote.trim().to_string(),
+            comment: comment.trim().to_string(),
+            voting_power: 1,
+            create_date: Local::now().timestamp(),
+            poll_id: Uuid::new_v4(),
+        };
+
+        conn.execute(
+            "INSERT INTO Vote (id, choice, comment, voting_power, create_date, poll_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            &[
+                &vote.id.to_string(),
+                &vote.choice,
+                &vote.comment,
+                &vote.voting_power.to_string(),
+                &vote.create_date.to_string(),
+                &vote.poll_id.to_string(),
+            ],
+        )?;
+    
+        Ok(())
+    }
+
+    fn choose_pool_to_vote(conn: &Connection) {
+        println!("Hello!");
+        println!("Choose one of the following pools:");
+    
+        let pools = vec![
+            "Pool 1",
+            "Pool 2",
+            "Pool 3",
+            "Pool 4",
+            "Pool 5",
+        ];
+    
+        for (i, question) in pools.iter().enumerate() {
+            println!("{}. {}", i + 1, question);
+        }
+    
+        let mut choose = String::new();
+    
+        io::stdin()
+        .read_line(&mut choose)
+        .expect("Failed to read line");
+    
+        let choose: usize = match choose.trim().parse() {
+            Ok(num) => num,
+            Err(_) => {
+                println!("Invalid input. Please enter a number.");
+                return;
+            }
+        };
+    
+        Vote::vote_in_pool(conn);
+    }
 }
+
 
 impl Poll {
     // Receive the question and the duration in days
     fn create_poll(question: &str, days_until_expiration: i64) -> Poll {
         let create_date = Local::now().timestamp();
         let expiration_date = create_date + 24*60*60*days_until_expiration;
-
         Poll {
             id: Uuid::new_v4(),
             question: question.to_string(),
@@ -57,54 +121,55 @@ impl Poll {
             total_votes: 0,
         }
     }
-
     fn edit_poll(&mut self, new_question: &str) {
         self.question = new_question.to_string();
         //Maybe add edit to date?
     }
-
-}
-
-fn delete_poll(polls: &mut Vec<Poll>, poll_id: Uuid) -> bool {
-    //Check if some poll.id is the same as poll_id. If it is equal it returns the index position then remove the poll from the polls list.
-    if let Some(index) = polls.iter().position(|poll| poll.id == poll_id) {
-        polls.remove(index);
-        true
-    } else {
-        false
+    
+    fn delete_poll(polls: &mut Vec<Poll>, poll_id: Uuid) -> bool {
+        //Check if some poll.id is the same as poll_id. If it is equal it returns the index position then remove the poll from the polls list.
+        if let Some(index) = polls.iter().position(|poll| poll.id == poll_id) {
+            polls.remove(index);
+            true
+        } else {
+            false
+        }
     }
 }
 
-fn csv_writer(file_name: &str) {
-    let file = OpenOptions::new()
-        .append(true)
-        .create(true)
-        .open(file_name);
+fn create_tables(conn: &Connection) -> Result<()> {
 
-    if file.is_err() {
-        println!("Error reading file");
-        return;
-    }
+    
+    conn.execute(
+        "
+        CREATE TABLE IF NOT EXISTS Poll (
+             id TEXT PRIMARY KEY,
+             question TEXT NOT NULL,
+             create_date DATE NOT NULL,
+             expiration_date DATE NOT NULL,
+             total_votes INTEGER NOT NULL
+             )",
+             (),
+            )?;
 
-    let file = file.unwrap();
-    let mut writer = WriterBuilder::new().from_writer(file);
+    conn.execute(
+        "
+        CREATE TABLE IF NOT EXISTS Vote (
+             id TEXT PRIMARY KEY,
+             choice TEXT NOT NULL,
+             comment TEXT,
+             voting_power INTEGER NOT NULL,
+             create_date DATE NOT NULL,
+             pool_id TEXT NOT NULL REFERENCES Pool(id)
+         )",
+        (),
+    )?;
 
-    let _ = writer.write_record(&["teste", "teste"]);
+    Ok(())
 }
-
-fn csv_reader(file_name: &str){
-    let reader = Reader::from_path(file_name);
-
-    if reader.is_err() {
-        println!("Error reading file");
-        return;
-    }
-
-    let mut file = reader.unwrap();
-
-    for record in file.records() {
-        let record = record.unwrap();
-        
-        println!("{}", record.get(0).unwrap());
-    }
+fn main() -> Result<()> {
+    let conn = Connection::open("database.db")?;
+    create_tables(&conn)?;
+    Vote::choose_pool_to_vote(&conn);
+    Ok(())
 }
