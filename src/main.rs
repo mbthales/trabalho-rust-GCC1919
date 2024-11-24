@@ -3,7 +3,7 @@ use std::io;
 use chrono::Local;
 use uuid::Uuid;
 
-//Create only to add to the Pool struct
+//Create only to add to the poll struct
 #[derive(Debug)]
 struct Vote {
     id: Uuid,
@@ -24,7 +24,7 @@ struct Poll {
 }
 
 impl Vote {
-    fn vote_in_pool (conn: &Connection, poll_id: Uuid) -> Result<()> {
+    fn vote_in_poll (conn: &Connection, poll_id: Uuid) -> Result<()> {
         let mut vote = String::new();
         let mut answer = String::new();
         let mut comment = String::new();
@@ -74,9 +74,9 @@ impl Vote {
         Ok(())
     }
 
-    fn choose_pool_to_vote(conn: &Connection) -> Result<()> {
+    fn choose_poll_to_vote(conn: &Connection) -> Result<()> {
         println!("Hello!");
-        println!("Choose one of the following pools:");
+        println!("Choose one of the following polls:");
     
         let mut stmt = conn.prepare("SELECT id, question, create_date, expiration_date, total_votes FROM Poll")?;
         let poll_iter = stmt.query_map([], |row| {
@@ -120,7 +120,7 @@ impl Vote {
 
         let poll_id = polls[choice - 1].id;
     
-        Vote::vote_in_pool(conn, poll_id);
+        Vote::vote_in_poll(conn, poll_id);
         Ok(())
     }
 }
@@ -133,10 +133,10 @@ impl Poll {
         let mut input_days = String::new();
         
         loop{
-            println!("Pool Question: ");
+            println!("poll Question: ");
             io::stdin()
                 .read_line(&mut question)
-                .expect("Failed to read Pool Question");
+                .expect("Failed to read poll Question");
 
             if question.trim().chars().count() > 0 {
                 if question.chars().count() <= 150{
@@ -177,7 +177,7 @@ impl Poll {
 
         let create_date = Local::now().timestamp();
         let expiration_date = create_date + 24*60*60*days_until_expiration;
-        let pool = Poll {
+        let poll = Poll {
             id: Uuid::new_v4(),
             question: question.trim().to_string(),
             create_date,
@@ -188,11 +188,11 @@ impl Poll {
         conn.execute(
             "INSERT INTO Poll (id, question, create_date, expiration_date, total_votes) VALUES (?1, ?2, ?3, ?4, ?5)",
             &[
-                &pool.id.to_string(),
-                &pool.question,
-                &pool.create_date.to_string(),
-                &pool.expiration_date.to_string(),
-                &pool.total_votes.to_string(),
+                &poll.id.to_string(),
+                &poll.question,
+                &poll.create_date.to_string(),
+                &poll.expiration_date.to_string(),
+                &poll.total_votes.to_string(),
             ],
         )?;
 
@@ -243,10 +243,10 @@ impl Poll {
         }
 
         loop{
-            println!("Pool Question: ");
+            println!("poll Question: ");
             io::stdin()
                 .read_line(&mut new_question)
-                .expect("Failed to read Pool Question");
+                .expect("Failed to read poll Question");
 
             if new_question.trim().chars().count() > 0 {
                 if new_question.chars().count() <= 150{
@@ -377,7 +377,7 @@ fn main() -> Result<()> {
 
     //Poll::delete_poll(&conn);
 
-    Vote::choose_pool_to_vote(&conn);
+    Vote::choose_poll_to_vote(&conn);
 
     let mut stmt = conn.prepare("SELECT id, question, create_date, expiration_date, total_votes FROM Poll")?;
     let poll_iter = stmt.query_map([], |row| {
