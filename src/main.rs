@@ -69,15 +69,60 @@ impl Vote {
                 &vote.create_date.to_string(),
                 &vote.poll_id.to_string(),
             ],
-            
         )?;
+
+        conn.execute(
+            "UPDATE Poll SET total_votes = ?1 WHERE id = ?2",
+            &[
+                &(1).to_string(),
+                &vote.poll_id.to_string(),
+            ],
+        )?;
+
         Ok(())
     }
 
     fn choose_poll_to_vote(conn: &Connection) -> Result<()> {
-        println!("Hello!");
         println!("Choose one of the following polls:");
     
+        let polls = Poll::get_polls(conn)?;
+    
+        for (i, poll) in polls.iter().enumerate() {
+            println!("{}. {}", i + 1, poll.question);
+        }
+    
+        let mut choice = String::new();
+    
+        loop{
+            io::stdin()
+            .read_line(&mut choice)
+            .expect("Failed to read line");
+        
+            let _: usize = match choice.trim().parse() {
+                Ok(num) if num > 0 && num <= polls.len() => num,
+                _ => {
+                    println!("Invalid input. Please enter a number.");
+                    choice.clear();
+                    continue;
+                }
+            };
+            break;
+        }
+        let choice: usize = choice.trim().parse().unwrap();
+
+        let poll_id = polls[choice - 1].id;
+    
+        let _ = Vote::vote_in_poll(conn, poll_id);
+
+        menu(conn)?;
+        
+        Ok(())
+    }
+}
+
+
+impl Poll {
+    fn get_polls(conn: &Connection) -> Result<Vec<Poll>> {
         let mut stmt = conn.prepare("SELECT id, question, create_date, expiration_date, total_votes FROM Poll")?;
         let poll_iter = stmt.query_map([], |row| {
             Ok(Poll {
@@ -93,47 +138,17 @@ impl Vote {
         for poll in poll_iter {
             polls.push(poll?);
         }
-
     
-        for (i, poll) in polls.iter().enumerate() {
-            println!("{}. {}", i + 1, poll.question);
-        }
-    
-        let mut choice = String::new();
-    
-        loop{
-            io::stdin()
-            .read_line(&mut choice)
-            .expect("Failed to read line");
-        
-            let choice: usize = match choice.trim().parse() {
-                Ok(num) if num > 0 && num <= polls.len() => num,
-                _ => {
-                    println!("Invalid input. Please enter a number.");
-                    choice.clear();
-                    continue;
-                }
-            };
-            break;
-        }
-        let choice: usize = choice.trim().parse().unwrap();
-
-        let poll_id = polls[choice - 1].id;
-    
-        Vote::vote_in_poll(conn, poll_id);
-        Ok(())
+        Ok(polls)
     }
-}
 
-
-impl Poll {
     // Receive the question and the duration in days
     fn create_poll(conn: &Connection) -> Result<()>  {
         let mut question = String::new();
         let mut input_days = String::new();
         
         loop{
-            println!("poll Question: ");
+            println!("Write your question below: ");
             io::stdin()
                 .read_line(&mut question)
                 .expect("Failed to read poll Question");
@@ -197,149 +212,150 @@ impl Poll {
         )?;
 
         println!("Poll Created!");
+
+        let _ = menu(conn);
+
         Ok(())
     }
 
-    fn edit_poll(conn: &Connection) -> Result<()>  {
-        let mut choice = String::new();
-        let mut new_question = String::new();
+    // fn edit_poll(conn: &Connection) -> Result<()>  {
+    //     let mut choice = String::new();
+    //     let mut new_question = String::new();
         
-        let mut stmt = conn.prepare("SELECT id, question, create_date, expiration_date, total_votes FROM Poll")?;
-        let poll_iter = stmt.query_map([], |row| {
-            Ok(Poll {
-                id: Uuid::parse_str(row.get::<_, String>(0)?.as_str()).unwrap(),
-                question: row.get(1)?,
-                create_date: row.get(2)?,
-                expiration_date: row.get(3)?,
-                total_votes: row.get(4)?,
-            })
-        })?;
-        let mut polls = Vec::new();
+    //     let mut stmt = conn.prepare("SELECT id, question, create_date, expiration_date, total_votes FROM Poll")?;
+    //     let poll_iter = stmt.query_map([], |row| {
+    //         Ok(Poll {
+    //             id: Uuid::parse_str(row.get::<_, String>(0)?.as_str()).unwrap(),
+    //             question: row.get(1)?,
+    //             create_date: row.get(2)?,
+    //             expiration_date: row.get(3)?,
+    //             total_votes: row.get(4)?,
+    //         })
+    //     })?;
+    //     let mut polls = Vec::new();
     
-        for poll in poll_iter {
-            polls.push(poll?);
-        }
+    //     for poll in poll_iter {
+    //         polls.push(poll?);
+    //     }
 
         
-        loop{
-            println!("Chose one poll to edit:");
+    //     loop{
+    //         println!("Chose one poll to edit:");
 
-            for (i, poll) in polls.iter().enumerate() {
-                println!("{} - {}", i + 1, poll.question);
-            }
+    //         for (i, poll) in polls.iter().enumerate() {
+    //             println!("{} - {}", i + 1, poll.question);
+    //         }
             
             
-            io::stdin().read_line(&mut choice).expect("Failed to read the choice");
+    //         io::stdin().read_line(&mut choice).expect("Failed to read the choice");
 
-            let choice: usize = match choice.trim().parse() {
-                Ok(num) if num > 0 && num <= polls.len() => num,
-                _ => {
-                    println!("Invalid input. Please enter a valid number.");
-                    choice.clear();
-                    continue;
-                }
-            };
-            break;
-        }
+    //         let choice: usize = match choice.trim().parse() {
+    //             Ok(num) if num > 0 && num <= polls.len() => num,
+    //             _ => {
+    //                 println!("Invalid input. Please enter a valid number.");
+    //                 choice.clear();
+    //                 continue;
+    //             }
+    //         };
+    //         break;
+    //     }
 
-        loop{
-            println!("poll Question: ");
-            io::stdin()
-                .read_line(&mut new_question)
-                .expect("Failed to read poll Question");
+    //     loop{
+    //         println!("poll Question: ");
+    //         io::stdin()
+    //             .read_line(&mut new_question)
+    //             .expect("Failed to read poll Question");
 
-            if new_question.trim().chars().count() > 0 {
-                if new_question.chars().count() <= 150{
-                    break;
-                } else{
-                    println!("Question is too long. Question only can have up to 150 chars.");
-                    new_question.clear()
-                }
-            } else{
-                println!("Question can't be empty");
-                new_question.clear()
-            }
-        }
+    //         if new_question.trim().chars().count() > 0 {
+    //             if new_question.chars().count() <= 150{
+    //                 break;
+    //             } else{
+    //                 println!("Question is too long. Question only can have up to 150 chars.");
+    //                 new_question.clear()
+    //             }
+    //         } else{
+    //             println!("Question can't be empty");
+    //             new_question.clear()
+    //         }
+    //     }
 
-        let choice: usize = choice.trim().parse().unwrap();
+    //     let choice: usize = choice.trim().parse().unwrap();
 
-        let selected_poll = &polls[choice - 1];
-        conn.execute(
-            "UPDATE Poll SET question = ?1 WHERE id = ?2",
-            &[&new_question.trim(), &selected_poll.id.to_string().as_str()],
-        )?;
-        println!("Poll {} edited Successfully", choice);
-        Ok(())
-    }
+    //     let selected_poll = &polls[choice - 1];
+    //     conn.execute(
+    //         "UPDATE Poll SET question = ?1 WHERE id = ?2",
+    //         &[&new_question.trim(), &selected_poll.id.to_string().as_str()],
+    //     )?;
+    //     println!("Poll {} edited Successfully", choice);
+    //     Ok(())
+    // }
 
-    fn delete_poll(conn: &Connection) -> Result<()> {
-        let mut choice = String::new();
-        let mut confirmation = String::new();
+    // fn delete_poll(conn: &Connection) -> Result<()> {
+    //     let mut choice = String::new();
+    //     let mut confirmation = String::new();
 
-        let mut stmt = conn.prepare("SELECT id, question, create_date, expiration_date, total_votes FROM Poll")?;
-        let poll_iter = stmt.query_map([], |row| {
-            Ok(Poll {
-                id: Uuid::parse_str(row.get::<_, String>(0)?.as_str()).unwrap(),
-                question: row.get(1)?,
-                create_date: row.get(2)?,
-                expiration_date: row.get(3)?,
-                total_votes: row.get(4)?,
-            })
-        })?;
-        let mut polls = Vec::new();
+    //     let mut stmt = conn.prepare("SELECT id, question, create_date, expiration_date, total_votes FROM Poll")?;
+    //     let poll_iter = stmt.query_map([], |row| {
+    //         Ok(Poll {
+    //             id: Uuid::parse_str(row.get::<_, String>(0)?.as_str()).unwrap(),
+    //             question: row.get(1)?,
+    //             create_date: row.get(2)?,
+    //             expiration_date: row.get(3)?,
+    //             total_votes: row.get(4)?,
+    //         })
+    //     })?;
+    //     let mut polls = Vec::new();
     
-        for poll in poll_iter {
-            polls.push(poll?);
-        }
+    //     for poll in poll_iter {
+    //         polls.push(poll?);
+    //     }
 
-        loop{
-            println!("Chose one poll to edit:");
+    //     loop{
+    //         println!("Chose one poll to edit:");
 
-            for (i, poll) in polls.iter().enumerate() {
-                println!("{} - {}", i + 1, poll.question);
-            }
+    //         for (i, poll) in polls.iter().enumerate() {
+    //             println!("{} - {}", i + 1, poll.question);
+    //         }
             
             
-            io::stdin().read_line(&mut choice).expect("Failed to read the choice");
+    //         io::stdin().read_line(&mut choice).expect("Failed to read the choice");
 
-            let choice: usize = match choice.trim().parse() {
-                Ok(num) if num > 0 && num <= polls.len() => num,
-                _ => {
-                    println!("Invalid input. Please enter a valid number.");
-                    choice.clear();
-                    continue;
-                }
-            };
-            break;
-        }
-        let choice: usize = choice.trim().parse().unwrap();
+    //         let choice: usize = match choice.trim().parse() {
+    //             Ok(num) if num > 0 && num <= polls.len() => num,
+    //             _ => {
+    //                 println!("Invalid input. Please enter a valid number.");
+    //                 choice.clear();
+    //                 continue;
+    //             }
+    //         };
+    //         break;
+    //     }
+    //     let choice: usize = choice.trim().parse().unwrap();
 
-        println!("Are you sure you want to delete the poll: {}? (y/n)", polls[choice - 1].question );
-        io::stdin()
-            .read_line(&mut confirmation)
-            .expect("Error");
+    //     println!("Are you sure you want to delete the poll: {}? (y/n)", polls[choice - 1].question );
+    //     io::stdin()
+    //         .read_line(&mut confirmation)
+    //         .expect("Error");
 
-        if confirmation.trim() == "y" {
-            //Check if some poll.id is the same as poll_id. If it is equal it returns the index position then remove the poll from the polls list.
-            if let Some(index) = polls.iter().position(|poll| poll.id == polls[choice - 1].id) {
-                conn.execute(
-                    "DELETE FROM Poll WHERE id = ?1",
-                    &[polls[choice - 1].id.to_string().as_str()],
-                )?;
-                println!("Poll Removed Successfuly!");
-            } else {
-                panic!("Error When Deleting the Poll")
-            }
-        } else{
-            println!("Canceling operation")
-        }
-        Ok(())
-    }
+    //     if confirmation.trim() == "y" {
+    //         //Check if some poll.id is the same as poll_id. If it is equal it returns the index position then remove the poll from the polls list.
+    //         if let Some(index) = polls.iter().position(|poll| poll.id == polls[choice - 1].id) {
+    //             conn.execute(
+    //                 "DELETE FROM Poll WHERE id = ?1",
+    //                 &[polls[choice - 1].id.to_string().as_str()],
+    //             )?;
+    //             println!("Poll Removed Successfuly!");
+    //         } else {
+    //             panic!("Error When Deleting the Poll")
+    //         }
+    //     } else{
+    //         println!("Canceling operation")
+    //     }
+    //     Ok(())
+    // }
 }
 
 fn create_tables(conn: &Connection) -> Result<()> {
-
-    
     conn.execute(
         "
         CREATE TABLE IF NOT EXISTS Poll (
@@ -367,35 +383,53 @@ fn create_tables(conn: &Connection) -> Result<()> {
 
     Ok(())
 }
+
+fn menu (conn: &Connection) -> Result<()>{
+    loop {
+        println!("What do you want to do?");
+        println!("1 - Create a Poll");
+        println!("2 - Vote in a Poll");
+        println!("3 - View Results");
+        println!("4 - Exit");
+        let mut answer = String::new();
+
+        io::stdin()
+            .read_line(&mut answer)
+            .expect("Error");
+
+        let answer = answer.trim();
+
+        if answer == "1" {
+            let _ = Poll::create_poll(&conn);
+            break;
+        } else if answer == "2" {
+            let _ = Vote::choose_poll_to_vote(&conn);
+            break;
+        } else if answer == "3" {
+            let polls = Poll::get_polls(conn)?;
+
+            for poll in polls {
+                println!("Question: {} | Total Votes: {}", poll.question, poll.total_votes);
+            }
+
+            let _ = menu(conn);
+        } else if answer == "4" {
+            println!("Exiting...");
+            break;
+        } else {
+            println!("Invalid input, please try again.");
+        }
+
+    }
+    Ok(())
+}
 fn main() -> Result<()> {
     let conn = Connection::open("database.db")?;
     create_tables(&conn)?;
 
-    //Poll::create_poll(&conn);
-    
-    //Poll::edit_poll(&conn);
+    println!("Hello!");    
 
-    //Poll::delete_poll(&conn);
+    let _ = menu(&conn);
 
-    Vote::choose_poll_to_vote(&conn);
-
-    let mut stmt = conn.prepare("SELECT id, question, create_date, expiration_date, total_votes FROM Poll")?;
-    let poll_iter = stmt.query_map([], |row| {
-        Ok(Poll {
-            id: Uuid::parse_str(row.get::<_, String>(0)?.as_str()).unwrap(),
-            question: row.get(1)?,
-            create_date: row.get(2)?,
-            expiration_date: row.get(3)?,
-            total_votes: row.get(4)?,
-        })
-    })?;
-    let mut polls = Vec::new();
-
-    for poll in poll_iter {
-        polls.push(poll?);
-    }
-
-    //println!("{:?}", polls);
-    
     Ok(())
 }
