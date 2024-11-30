@@ -26,8 +26,8 @@ struct Poll {
     question: String,
     create_date: i64,
     expiration_date: i64,
-    //votes: Vec<Vote>,
-    total_votes: i16,
+    positive_votes: i16,
+    negative_votes: i16,
 }
 
 impl Vote {
@@ -99,7 +99,7 @@ impl Vote {
         )?;
 
         conn.execute(
-            "UPDATE Poll SET total_votes = ?1 WHERE id = ?2",
+            "UPDATE Poll SET positive_votes = ?1 WHERE id = ?2",
             &[
                 &(1).to_string(),
                 &vote.poll_id.to_string(),
@@ -266,14 +266,15 @@ impl Vote {
 
 impl Poll {
     fn get_polls(conn: &Connection) -> Result<Vec<Poll>> {
-        let mut stmt = conn.prepare("SELECT id, question, create_date, expiration_date, total_votes FROM Poll")?;
+        let mut stmt = conn.prepare("SELECT id, question, create_date, expiration_date, positive_votes, negative_votes FROM Poll")?;
         let poll_iter = stmt.query_map([], |row| {
             Ok(Poll {
                 id: Uuid::parse_str(row.get::<_, String>(0)?.as_str()).unwrap(),
                 question: row.get(1)?,
                 create_date: row.get(2)?,
                 expiration_date: row.get(3)?,
-                total_votes: row.get(4)?,
+                positive_votes: row.get(4)?,
+                negative_votes: row.get(5)?,
             })
         })?;
         let mut polls = Vec::new();
@@ -340,17 +341,19 @@ impl Poll {
             question: question.trim().to_string(),
             create_date,
             expiration_date,
-            total_votes: 0,
+            positive_votes: 0,
+            negative_votes: 0,
         };
 
         conn.execute(
-            "INSERT INTO Poll (id, question, create_date, expiration_date, total_votes) VALUES (?1, ?2, ?3, ?4, ?5)",
+            "INSERT INTO Poll (id, question, create_date, expiration_date, positive_votes, negative_votes ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             &[
                 &poll.id.to_string(),
                 &poll.question,
                 &poll.create_date.to_string(),
                 &poll.expiration_date.to_string(),
-                &poll.total_votes.to_string(),
+                &poll.positive_votes.to_string(),
+                &poll.negative_votes.to_string(),
             ],
         )?;
 
@@ -365,14 +368,15 @@ impl Poll {
         let mut choice = String::new();
         let mut new_question = String::new();
         
-        let mut stmt = conn.prepare("SELECT id, question, create_date, expiration_date, total_votes FROM Poll")?;
+        let mut stmt = conn.prepare("SELECT id, question, create_date, expiration_date, positive_votes, negative_votes FROM Poll")?;
         let poll_iter = stmt.query_map([], |row| {
             Ok(Poll {
                 id: Uuid::parse_str(row.get::<_, String>(0)?.as_str()).unwrap(),
                 question: row.get(1)?,
                 create_date: row.get(2)?,
                 expiration_date: row.get(3)?,
-                total_votes: row.get(4)?,
+                positive_votes: row.get(4)?,
+                negative_votes: row.get(5)?,
             })
         })?;
         let mut polls = Vec::new();
@@ -440,14 +444,15 @@ impl Poll {
         let mut choice = String::new();
         let mut confirmation = String::new();
 
-        let mut stmt = conn.prepare("SELECT id, question, create_date, expiration_date, total_votes FROM Poll")?;
+        let mut stmt = conn.prepare("SELECT id, question, create_date, expiration_date, positive_votes, negative_votes FROM Poll")?;
         let poll_iter = stmt.query_map([], |row| {
             Ok(Poll {
                 id: Uuid::parse_str(row.get::<_, String>(0)?.as_str()).unwrap(),
                 question: row.get(1)?,
                 create_date: row.get(2)?,
                 expiration_date: row.get(3)?,
-                total_votes: row.get(4)?,
+                positive_votes: row.get(4)?,
+                negative_votes: row.get(5)?,
             })
         })?;
         let mut polls = Vec::new();
@@ -512,7 +517,8 @@ fn create_tables(conn: &Connection) -> Result<()> {
              question TEXT NOT NULL,
              create_date DATE NOT NULL,
              expiration_date DATE NOT NULL,
-             total_votes INTEGER NOT NULL
+             positive_votes INTEGER NOT NULL,
+             negative_votes INTEGER NOT NULL
              )",
              (),
             )?;
@@ -578,9 +584,10 @@ fn menu (conn: &Connection) -> Result<()>{
                 let create_date = Local.timestamp_opt(poll.create_date, 0).unwrap();
                 let expiration_date = Local.timestamp_opt(poll.expiration_date, 0).unwrap();
 
-                println!("\nQuestion: {} \nTotal Votes: {} \nCreate Date: {}\nExpiration Date: {}",
+                println!("\nQuestion: {} \nPositive Votes: {}\nNegative Votes: {} \nCreate Date: {}\nExpiration Date: {}",
                 poll.question, 
-                poll.total_votes, 
+                poll.positive_votes,
+                poll.negative_votes,
                 create_date.format("%d-%m-%Y %H:%M:%S"),
                 expiration_date.format("%d-%m-%Y %H:%M:%S"));
             }
