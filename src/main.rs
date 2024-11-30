@@ -13,6 +13,13 @@ struct Vote {
     create_date: i64,
     poll_id: Uuid,
 }
+
+#[derive(Debug)]
+struct VotePoll {
+    id: Uuid,
+    choice: String,
+    question: String,
+}
 #[derive(Debug)]
 struct Poll {
     id: Uuid, //Could have used a sequential one but I find it easier
@@ -24,25 +31,45 @@ struct Poll {
 }
 
 impl Vote {
+    fn get_poll_votes(conn: &Connection) -> Result<Vec<VotePoll>>{
+        let mut stmt = conn.prepare("SELECT Vote.id as id, Vote.choice as choice, Poll.question as question FROM Vote JOIN Poll ON Vote.poll_id = Poll.id")?;
+
+        let vote_iter = stmt.query_map([], |row| {
+            Ok(VotePoll {
+                id: Uuid::parse_str(row.get::<_, String>(0)?.as_str()).unwrap(),
+                choice: row.get(1)?,
+                question: row.get(2)?,
+            })
+        })?;
+    
+        let mut votes = Vec::new();
+
+        for vote in vote_iter {
+            votes.push(vote?);
+        }
+    
+        Ok(votes)
+    }
+
     fn vote_in_poll (conn: &Connection, poll_id: Uuid) -> Result<()> {
         let mut vote = String::new();
         let mut answer = String::new();
         let mut comment = String::new();
     
-        println!("You vote? (y/n)");    
-        println!("Digit 'y' for yes and 'n' for no");
+        println!("\nYou vote? (y/n)");    
+        println!("\nDigit 'y' for yes and 'n' for no");
 
         io::stdin()
             .read_line(&mut vote)
             .expect("Error");
     
-        println!("You want to add a comment? (y/n)");
+        println!("\nYou want to add a comment? (y/n)");
         io::stdin()
             .read_line(&mut answer)
             .expect("Error");
     
         if answer.trim() == "y" {
-            println!("Write your comment:");
+            println!("\nWrite your comment:");
             io::stdin()
                 .read_line(&mut comment)
                 .expect("Error");
@@ -83,7 +110,7 @@ impl Vote {
     }
 
     fn choose_poll_to_vote(conn: &Connection) -> Result<()> {
-        println!("Choose one of the following polls:");
+        println!("\nChoose one of the following polls:");
     
         let polls = Poll::get_polls(conn)?;
     
@@ -96,12 +123,12 @@ impl Vote {
         loop{
             io::stdin()
             .read_line(&mut choice)
-            .expect("Failed to read line");
+            .expect("\nFailed to read line");
         
             let _: usize = match choice.trim().parse() {
                 Ok(num) if num > 0 && num <= polls.len() => num,
                 _ => {
-                    println!("Invalid input. Please enter a number.");
+                    println!("\nInvalid input. Please enter a number.");
                     choice.clear();
                     continue;
                 }
@@ -118,6 +145,122 @@ impl Vote {
         
         Ok(())
     }
+
+    fn edit_vote(conn: &Connection) -> Result<()> {
+        let votes = Vote::get_poll_votes(conn)?;
+
+        println!("\nChoose one of the following votes to edit:");
+
+        for (i, vote) in votes.iter().enumerate() {
+            println!("{}. {} - {}", i + 1, vote.choice, vote.question);
+        }
+
+        let mut choice = String::new();
+
+        loop{
+            io::stdin()
+            .read_line(&mut choice)
+            .expect("Failed to read line");
+        
+            let _: usize = match choice.trim().parse() {
+                Ok(num) if num > 0 && num <= votes.len() => num,
+                _ => {
+                    println!("\nInvalid input. Please enter a number.");
+                    choice.clear();
+                    continue;
+                }
+            };
+            break;
+        }
+
+        let choice: usize = choice.trim().parse().unwrap();
+
+        let selected_vote = &votes[choice - 1];
+
+        let mut new_choice = String::new();
+        let mut new_comment = String::new();
+
+        loop{
+            println!("\nYou vote? (y/n)");    
+            println!("\nDigit 'y' for yes and 'n' for no");
+
+            io::stdin()
+                .read_line(&mut new_choice)
+                .expect("Error");
+        
+            println!("\nYou want to add a comment? (y/n)");
+            io::stdin()
+                .read_line(&mut new_comment)
+                .expect("Error");
+        
+            if new_comment.trim() == "y" {
+                println!("\nWrite your comment:");
+                io::stdin()
+                    .read_line(&mut new_comment)
+                    .expect("Error");
+            }
+
+            if new_choice.trim() == "y" || new_choice.trim() == "n" {
+                break;
+            } else{
+                println!("\nInvalid input. Please enter 'y' or 'n'.");
+            }
+        }
+
+        conn.execute(
+            "UPDATE Vote SET choice = ?1, comment = ?2 WHERE id = ?3",
+            &[new_choice.trim(), new_comment.trim(), &selected_vote.id.to_string().as_str()],
+        )?;
+
+        println!("\nYour vote was edited successfully!");
+
+        let _ = menu(conn);
+
+        Ok(())
+    }
+
+    fn delete_poll_vote(conn: &Connection) -> Result<()> {
+        let votes = Vote::get_poll_votes(conn)?;
+
+        println!("\nChoose one of the following votes to delete:");
+
+        for (i, vote) in votes.iter().enumerate() {
+            println!("{}. {} - {}", i + 1, vote.choice, vote.question);
+        }
+
+        let mut choice = String::new();
+
+        loop{
+            io::stdin()
+            .read_line(&mut choice)
+            .expect("Failed to read line");
+        
+            let _: usize = match choice.trim().parse() {
+                Ok(num) if num > 0 && num <= votes.len() => num,
+                _ => {
+                    println!("\nInvalid input. Please enter a number.");
+                    choice.clear();
+                    continue;
+                }
+            };
+            break;
+        }
+
+        let choice: usize = choice.trim().parse().unwrap();
+
+        let selected_vote = &votes[choice - 1];
+
+        conn.execute(
+            "DELETE FROM Vote WHERE id = ?1",
+            &[selected_vote.id.to_string().as_str()],
+        )?;
+
+        println!("\nYour vote was removed successfully!");
+
+        let _ = menu(conn);
+
+        Ok(())
+    }   
 }
 
 
@@ -148,34 +291,34 @@ impl Poll {
         let mut input_days = String::new();
         
         loop{
-            println!("Write your question below: ");
+            println!("\nWrite your question below: ");
             io::stdin()
                 .read_line(&mut question)
-                .expect("Failed to read poll Question");
+                .expect("\nFailed to read poll Question");
 
             if question.trim().chars().count() > 0 {
                 if question.chars().count() <= 150{
                     break;
                 } else{
-                    println!("Question is too long. Question only can have up to 150 chars.");
+                    println!("\nQuestion is too long. Question only can have up to 150 chars.");
                     question.clear()
                 }
             } else{
-                println!("Question can't be empty");
+                println!("\nQuestion can't be empty");
                 question.clear()
             }
         }
 
         loop{
-            println!("7 days or 30 days until expiration?");
+            println!("\n7 days or 30 days until expiration?");
             io::stdin()
                 .read_line(&mut input_days)
-                .expect("Failed to read days");
+                .expect("\nFailed to read days");
             
                 let input_days: u32 = match input_days.trim().parse() {
                     Ok(num) => num,
                     Err(_) => {
-                        println!("Invalid input. Please enter a number.");
+                        println!("\nInvalid input. Please enter a number.");
                         input_days.clear();
                         continue;
                     }
@@ -184,7 +327,7 @@ impl Poll {
                 if input_days == 7 || input_days == 30 {
                     break;
                 } else{
-                    println!("Only can be 7 days or 30 days.");
+                    println!("\nOnly can be 7 days or 30 days.");
                 }
         }
 
@@ -211,7 +354,7 @@ impl Poll {
             ],
         )?;
 
-        println!("Poll Created!");
+        println!("\nPoll Created!");
 
         let _ = menu(conn);
 
@@ -386,11 +529,13 @@ fn create_tables(conn: &Connection) -> Result<()> {
 
 fn menu (conn: &Connection) -> Result<()>{
     loop {
-        println!("What do you want to do?");
+        println!("\nWhat do you want to do?");
         println!("1 - Create a Poll");
         println!("2 - Vote in a Poll");
-        println!("3 - View Results");
-        println!("4 - Exit");
+        println!("3 - Edit a Vote");
+        println!("4 - Delete a Vote");
+        println!("5 - View Results");
+        println!("6 - Exit");
         let mut answer = String::new();
 
         io::stdin()
@@ -405,19 +550,25 @@ fn menu (conn: &Connection) -> Result<()>{
         } else if answer == "2" {
             let _ = Vote::choose_poll_to_vote(&conn);
             break;
-        } else if answer == "3" {
+        }  else if answer == "3" {
+            let _ = Vote::edit_vote(&conn);
+            break;
+        } else if answer == "4" {
+            let _ = Vote::delete_poll_vote(&conn);
+            break;
+        } else if answer == "5" {
             let polls = Poll::get_polls(conn)?;
 
             for poll in polls {
-                println!("Question: {} | Total Votes: {}", poll.question, poll.total_votes);
+                println!("\nQuestion: {} | Total Votes: {}", poll.question, poll.total_votes);
             }
 
             let _ = menu(conn);
-        } else if answer == "4" {
-            println!("Exiting...");
+        } else if answer == "6" {
+            println!("\nExiting...");
             break;
         } else {
-            println!("Invalid input, please try again.");
+            println!("\nInvalid input, please try again.");
         }
 
     }
