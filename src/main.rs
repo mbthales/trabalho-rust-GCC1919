@@ -120,30 +120,7 @@ impl Vote {
         Ok(votes)
     }
 
-    fn vote_in_poll (conn: &Connection, poll_id: Uuid) -> Result<()> {
-        let mut vote = String::new();
-        let mut answer = String::new();
-        let mut comment = String::new();
-    
-        println!("\nYou vote? (y/n)");    
-        println!("Digit 'y' for yes and 'n' for no");
-
-        io::stdin()
-            .read_line(&mut vote)
-            .expect("Error");
-    
-        println!("\nYou want to add a comment? (y/n)");
-        io::stdin()
-            .read_line(&mut answer)
-            .expect("Error");
-    
-        if answer.trim() == "y" {
-            println!("\nWrite your comment:");
-            io::stdin()
-                .read_line(&mut comment)
-                .expect("Error");
-        }
-
+    fn vote_in_poll (conn: &Connection, poll_id: Uuid, vote: &String, comment: String) -> Result<()> {
         let vote = Vote {
             id: Uuid::new_v4(),
             choice: match vote.trim() {
@@ -156,23 +133,6 @@ impl Vote {
             create_date: Local::now().timestamp(),
             poll_id,
         };
-
-        println!("\nYour vote was registered successfully!");
-
-        match vote.choice {
-            VoteChoice::Yes => {
-                conn.execute(
-                    "UPDATE Poll SET positive_votes = positive_votes + 1 WHERE id = ?1",
-                    &[&vote.poll_id.to_string()],
-                )?;
-            }
-            VoteChoice::No => {
-                conn.execute(
-                    "UPDATE Poll SET negative_votes = negative_votes + 1 WHERE id = ?1",
-                    &[&vote.poll_id.to_string()],
-                )?;
-            }
-        }
 
         let choice = match &vote.choice {
             VoteChoice::Yes => "y".to_string(),
@@ -192,122 +152,27 @@ impl Vote {
             ]
         )?;
 
-        Ok(())
-    }
-
-    fn choose_poll_to_vote(conn: &Connection) -> Result<()> {
-        let polls = Poll::get_polls(conn)?;
-
-        if polls.len() == 0 {
-            println!("\nThere are no polls to vote.");
-            let _ = menu(conn);
-            return Ok(());
-        }
-
-        println!("\nChoose one of the following polls:");
-    
-    
-        for (i, poll) in polls.iter().enumerate() {
-            println!("{}. {}", i + 1, poll.question);
-        }
-    
-        let mut choice = String::new();
-    
-        loop{
-            io::stdin()
-            .read_line(&mut choice)
-            .expect("\nFailed to read line");
-        
-            let _: usize = match choice.trim().parse() {
-                Ok(num) if num > 0 && num <= polls.len() => num,
-                _ => {
-                    println!("\nInvalid input. Please enter a number.");
-                    choice.clear();
-                    continue;
-                }
-            };
-            break;
-        }
-        let choice: usize = choice.trim().parse().unwrap();
-
-        let poll_id = polls[choice - 1].id;
-    
-        let _ = Vote::vote_in_poll(conn, poll_id);
-
-        menu(conn)?;
-        
-        Ok(())
-    }
-
-    fn edit_vote(conn: &Connection) -> Result<()> {
-        let votes = Vote::get_poll_votes(conn)?;
-
-        if votes.len() == 0 {
-            println!("\nThere are no votes to edit.");
-            let _ = menu(conn);
-            return Ok(());
-        }
-
-        println!("\nChoose one of the following votes to edit:");
-
-        for (i, vote) in votes.iter().enumerate() {
-            println!("{}. {} - {}", i + 1, vote.choice, vote.question);
-        }
-
-        let mut choice = String::new();
-
-        loop{
-            io::stdin()
-            .read_line(&mut choice)
-            .expect("Failed to read line");
-        
-            let _: usize = match choice.trim().parse() {
-                Ok(num) if num > 0 && num <= votes.len() => num,
-                _ => {
-                    println!("\nInvalid input. Please enter a number.");
-                    choice.clear();
-                    continue;
-                }
-            };
-            break;
-        }
-
-        let choice: usize = choice.trim().parse().unwrap();
-
-        let selected_vote = &votes[choice - 1];
-
-        let mut new_choice = String::new();
-        let mut new_comment = String::new();
-
-        loop{
-            println!("\nYou vote? (y/n)");    
-            println!("Digit 'y' for yes and 'n' for no");
-
-            io::stdin()
-                .read_line(&mut new_choice)
-                .expect("Error");
-        
-            println!("\nYou want to add a comment? (y/n)");
-            io::stdin()
-                .read_line(&mut new_comment)
-                .expect("Error");
-        
-            if new_comment.trim() == "y" {
-                println!("\nWrite your comment:");
-                io::stdin()
-                    .read_line(&mut new_comment)
-                    .expect("Error");
+        match vote.choice {
+            VoteChoice::Yes => {
+                conn.execute(
+                    "UPDATE Poll SET positive_votes = positive_votes + 1 WHERE id = ?1",
+                    &[&vote.poll_id.to_string()],
+                )?;
             }
-
-            if new_choice.trim() == "y" || new_choice.trim() == "n" {
-                break;
-            } else{
-                println!("\nInvalid input. Please enter 'y' or 'n'.");
+            VoteChoice::No => {
+                conn.execute(
+                    "UPDATE Poll SET negative_votes = negative_votes + 1 WHERE id = ?1",
+                    &[&vote.poll_id.to_string()],
+                )?;
             }
         }
 
-        let current_vote = &votes[choice - 1];
+        println!("\nYour vote was registered successfully!");
 
+        Ok(())
+    }
+
+    fn edit_vote(conn: &Connection, current_vote: &VotePoll, selected_vote: &VotePoll, new_choice: String, new_comment: String) -> Result<()> {
         if current_vote.choice.trim() == "y" && new_choice.trim() == "n" {
             conn.execute(
                 "UPDATE Poll SET positive_votes = positive_votes - 1 WHERE id = ?1",
@@ -345,89 +210,29 @@ impl Vote {
 
         println!("\nYour vote was edited successfully!");
 
-        let _ = menu(conn);
-
         Ok(())
     }
 
-    fn delete_poll_vote(conn: &Connection) -> Result<()> {
-        let votes = Vote::get_poll_votes(conn)?;
-        let mut confirmation = String::new();
+    fn delete_poll_vote(conn: &Connection, selected_vote: &VotePoll) -> Result<()> {
+        conn.execute(
+            "DELETE FROM Vote WHERE id = ?1",
+            &[selected_vote.id.to_string().as_str()],
+        )?;
 
-        if votes.len() == 0 {
-            println!("\nThere are no votes to delete.");
-            let _ = menu(conn);
-            return Ok(());
+        if selected_vote.choice.trim() == "y" {
+            conn.execute(
+                "UPDATE Poll SET positive_votes = positive_votes - 1 WHERE id = ?1",
+                &[selected_vote.poll_id.to_string().as_str()],
+            )?;
+        } else {
+            conn.execute(
+                "UPDATE Poll SET negative_votes = negative_votes - 1 WHERE id = ?1",
+                &[selected_vote.poll_id.to_string().as_str()],
+            )?;
         }
 
-        println!("\nChoose one of the following votes to delete:");
-
-        for (i, vote) in votes.iter().enumerate() {
-            println!("{}. {} - {}", i + 1, vote.choice, vote.question);
-        }
-
-        let mut choice = String::new();
-
-        loop{
-            io::stdin()
-            .read_line(&mut choice)
-            .expect("Failed to read line");
+        println!("\nYour vote was removed successfully!");
         
-            let _: usize = match choice.trim().parse() {
-                Ok(num) if num > 0 && num <= votes.len() => num,
-                _ => {
-                    println!("\nInvalid input. Please enter a number.");
-                    choice.clear();
-                    continue;
-                }
-            };
-            break;
-        }
-
-        let choice: usize = choice.trim().parse().unwrap();
-
-        let selected_vote = &votes[choice - 1];
-
-        println!("\nAre you sure you want to delete the vote: {} - '{}'? (y/n)", votes[choice - 1].choice, votes[choice - 1].question);
-
-        io::stdin()
-            .read_line(&mut confirmation)
-            .expect("Error");
-
-        if confirmation.trim() == "y" {
-            if let Some(_index) = votes.iter().position(|poll| poll.id == votes[choice - 1].id) {
-                conn.execute(
-                    "DELETE FROM Poll WHERE id = ?1",
-                    &[votes[choice - 1].id.to_string().as_str()],
-                )?;
-
-                conn.execute(
-                    "DELETE FROM Vote WHERE id = ?1",
-                    &[selected_vote.id.to_string().as_str()],
-                )?;
-        
-                if selected_vote.choice == "y" {
-                    conn.execute(
-                        "UPDATE Poll SET positive_votes = positive_votes - 1 WHERE id = ?1",
-                        &[selected_vote.poll_id.to_string().as_str()],
-                    )?;
-                } else {
-                    conn.execute(
-                        "UPDATE Poll SET negative_votes = negative_votes - 1 WHERE id = ?1",
-                        &[selected_vote.poll_id.to_string().as_str()],
-                    )?;
-                }
-                println!("\nYour vote was removed successfully!");
-        
-            } else {
-                panic!("Error When Deleting the Poll")
-            }
-        } else{
-            println!("\nCanceling operation")
-        }
-
-        let _ = menu(conn);
-
         Ok(())
     }   
 }
@@ -461,6 +266,9 @@ impl Poll {
         let create_date: i64;
         let expiration_date: i64;
 
+
+                
+                
                 
         if question.trim().chars().count() > 0 {
             if question.chars().count() <= 150{
@@ -837,19 +645,198 @@ fn menu (conn: &Connection) -> Result<()>{
             let _ = menu(conn);
             break;
         } else if answer == "2" {
-            let _ = Vote::choose_poll_to_vote(conn);
+            let polls = Poll::get_polls(conn)?;
+            let mut choice = String::new();
+            let mut vote = String::new();
+            let mut answer = String::new();
+            let mut comment = String::new();
+
+            if polls.len() == 0 {
+                println!("\nThere are no polls to vote.");
+                let _ = menu(conn);
+                return Ok(());
+            }
+    
+            println!("\nChoose one of the following polls:");
+        
+            for (i, poll) in polls.iter().enumerate() {
+                println!("{}. {}", i + 1, poll.question);
+            }
+        
+            loop{
+                io::stdin()
+                .read_line(&mut choice)
+                .expect("\nFailed to read line");
+            
+                let _: usize = match choice.trim().parse() {
+                    Ok(num) if num > 0 && num <= polls.len() => num,
+                    _ => {
+                        println!("\nInvalid input. Please enter a number.");
+                        choice.clear();
+                        continue;
+                    }
+                };
+                break;
+            }
+            let choice: usize = choice.trim().parse().unwrap();
+    
+            let poll_id = polls[choice - 1].id;
+
+            println!("\nYou vote? (y/n)");    
+            println!("Digit 'y' for yes and 'n' for no");
+    
+            io::stdin()
+                .read_line(&mut vote)
+                .expect("Error");
+        
+            println!("\nYou want to add a comment? (y/n)");
+            io::stdin()
+                .read_line(&mut answer)
+                .expect("Error");
+        
+            if answer.trim() == "y" {
+                println!("\nWrite your comment:");
+                io::stdin()
+                    .read_line(&mut comment)
+                    .expect("Error");
+            }
+
+            let _ = Vote::vote_in_poll(conn, poll_id, &vote, comment);
+
+            let _ = menu(conn);
             break;
         } else if answer == "3" {
             let _ = Poll::edit_poll(conn);
             break;
         } else if answer == "4" {
-            let _ = Vote::edit_vote(conn);
+            let votes = Vote::get_poll_votes(conn)?;
+
+            if votes.len() == 0 {
+                println!("\nThere are no votes to edit.");
+                let _ = menu(conn);
+                return Ok(());
+            }
+    
+            println!("\nChoose one of the following votes to edit:");
+    
+            for (i, vote) in votes.iter().enumerate() {
+                println!("{}. {} - {}", i + 1, vote.choice, vote.question);
+            }
+    
+            let mut choice = String::new();
+    
+            loop{
+                io::stdin()
+                .read_line(&mut choice)
+                .expect("Failed to read line");
+            
+                let _: usize = match choice.trim().parse() {
+                    Ok(num) if num > 0 && num <= votes.len() => num,
+                    _ => {
+                        println!("\nInvalid input. Please enter a number.");
+                        choice.clear();
+                        continue;
+                    }
+                };
+                break;
+            }
+    
+            let choice: usize = choice.trim().parse().unwrap();
+    
+            let selected_vote = &votes[choice - 1];
+    
+            let mut new_choice = String::new();
+            let mut new_comment = String::new();
+    
+            loop{
+                println!("\nYou vote? (y/n)");    
+                println!("Digit 'y' for yes and 'n' for no");
+    
+                io::stdin()
+                    .read_line(&mut new_choice)
+                    .expect("Error");
+            
+                println!("\nYou want to add a comment? (y/n)");
+                io::stdin()
+                    .read_line(&mut new_comment)
+                    .expect("Error");
+            
+                if new_comment.trim() == "y" {
+                    println!("\nWrite your comment:");
+                    io::stdin()
+                        .read_line(&mut new_comment)
+                        .expect("Error");
+                }
+    
+                if new_choice.trim() == "y" || new_choice.trim() == "n" {
+                    break;
+                } else{
+                    println!("\nInvalid input. Please enter 'y' or 'n'.");
+                }
+            }
+    
+            let current_vote = &votes[choice - 1];
+
+            let _ = Vote::edit_vote(conn, current_vote, selected_vote, new_choice, new_comment);
+
+            let _ = menu(conn);
+
             break;
         } else if answer == "5" {
             let _ = Poll::delete_poll(conn);
             break;
         } else if answer == "6" {
-            let _ = Vote::delete_poll_vote(conn);
+            let votes = Vote::get_poll_votes(conn)?;
+
+            if votes.len() == 0 {
+                println!("\nThere are no votes to show.");
+                let _ = menu(conn);
+                break;
+            }
+
+            let mut choice = String::new();
+            let mut confirmation = String::new();
+                
+            loop{
+                io::stdin()
+                .read_line(&mut choice)
+                .expect("Failed to read line");
+            
+                let _: usize = match choice.trim().parse() {
+                    Ok(num) if num > 0 && num <= votes.len() => num,
+                    _ => {
+                        println!("\nInvalid input. Please enter a number.");
+                        choice.clear();
+                        continue;
+                    }
+                };
+                break;
+            }
+    
+            let choice: usize = choice.trim().parse().unwrap();
+    
+            let selected_vote = &votes[choice - 1];
+    
+            println!("\nAre you sure you want to delete the vote: {} - '{}'? (y/n)", votes[choice - 1].choice, votes[choice - 1].question);
+    
+            io::stdin()
+                .read_line(&mut confirmation)
+                .expect("Error");
+    
+            if confirmation.trim() == "y" {
+                if let Some(_index) = votes.iter().position(|poll| poll.id == votes[choice - 1].id) {
+
+                    Vote::delete_poll_vote(conn, selected_vote)?;
+        
+                } else {
+                    panic!("Error when deleting the vote")
+                }
+            } else{
+                println!("\nCanceling operation")
+            }
+
+            let _ = menu(conn);
+
             break;
         } else if answer == "7" {
             let polls = Poll::get_polls(conn)?;
