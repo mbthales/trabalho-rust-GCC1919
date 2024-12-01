@@ -539,6 +539,12 @@ impl Poll {
             polls.push(poll?);
         }
 
+        if polls.len() == 0 {
+            println!("\nThere are no polls to Edit.");
+            let _ = menu(conn);
+            return Ok(());
+        }
+
         
         loop{
             println!("\nChose one poll to edit:");
@@ -683,6 +689,12 @@ impl Poll {
         for poll in poll_iter {
             polls.push(poll?);
         }
+        
+        if polls.len() == 0 {
+            println!("\nThere are no polls to Delete.");
+            let _ = menu(conn);
+            return Ok(());
+        }
 
         loop{
             println!("\nChose one poll to delete:");
@@ -714,6 +726,11 @@ impl Poll {
         if confirmation.trim() == "y" {
             //Check if some poll.id is the same as poll_id. If it is equal it returns the index position then remove the poll from the polls list.
             if let Some(_index) = polls.iter().position(|poll| poll.id == polls[choice - 1].id) {
+                conn.execute(
+                    "DELETE FROM Vote WHERE poll_id = ?1",
+                    [polls[choice - 1].id.to_string().as_str()],
+                )?;
+
                 conn.execute(
                     "DELETE FROM Poll WHERE id = ?1",
                     [polls[choice - 1].id.to_string().as_str()],
