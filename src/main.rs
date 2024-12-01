@@ -27,7 +27,7 @@ struct VotePoll {
     question: String,
     poll_id: Uuid,
 }
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 struct Poll {
     id: Uuid, //Could have used a sequential one but I find it easier
     question: String,
@@ -38,7 +38,7 @@ struct Poll {
     negative_votes: i16,
 }
 
-#[derive(Debug, Copy, Clone)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 enum PollDuration {
     OneWeek = 7,
     OneMonth = 30,
@@ -861,4 +861,94 @@ fn main() -> Result<()> {
     let _ = menu(&conn);
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use rusqlite::{Connection, Result};
+    use uuid::Uuid;
+    use chrono::Local;
+
+    use crate::{create_tables, Vote, PollDuration, Poll, VoteChoice};
+
+    use std::fs;
+    use std::path::Path;
+    
+    #[test]
+    fn test_get_polls() -> Result<()> {
+        println!("Starting Test");
+        let conn = Connection::open_in_memory()?;
+    
+        create_tables(&conn)?;
+    
+        // Insert sample data
+        let vote_id_2 = Uuid::new_v4().to_string();
+    
+        let now = Local::now().timestamp();
+
+        let poll = Poll {
+            id: Uuid::new_v4(),
+            question: "teste question?".trim().to_string(),
+            poll_duration: PollDuration::OneMonth,
+            create_date: Local::now().timestamp(),
+            expiration_date : Local::now().timestamp() + 24*60*60*30,
+            positive_votes: 0,
+            negative_votes: 0,
+        };
+    
+        conn.execute(
+            "INSERT INTO Poll (id, question, poll_duration, create_date, expiration_date, positive_votes, negative_votes ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            [
+                &poll.id.to_string(),
+                &poll.question,
+                &poll.poll_duration.to_string(),
+                &poll.create_date.to_string(),
+                &poll.expiration_date.to_string(),
+                &poll.positive_votes.to_string(),
+                &poll.negative_votes.to_string(),
+            ],
+        )?;
+
+        println!("Insert okay");
+        /*
+        let vote1 = Vote{
+            id: Uuid::new_v4(),
+            choice:  VoteChoice::Yes,
+            comment: "Comment about this poll".trim().to_string(),
+            voting_power: 5,
+            create_date: Local::now().timestamp(),
+            poll_id: poll.id,
+        };
+
+        
+        conn.execute(
+            "INSERT INTO Vote (id, choice, comment, voting_power, create_date, poll_id) 
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            &[
+                &vote1.id.to_string(),
+                &"y".trim().to_string(),
+                &vote1.comment,
+                &vote1.voting_power.to_string(),
+                &vote1.create_date.to_string(),
+                &vote1.poll_id.to_string(),
+            ]
+        )?;
+        */
+
+        // Obtemos o resultado da função get_polls
+        let polls_output = Poll::get_polls(&conn);
+
+        match polls_output {
+            Ok(polls) => {
+                let response = &polls[0];
+                println!("{:?}", response);
+                println!("{:?}", poll);
+                assert_eq!(response, &poll)
+            }
+            Err(err) => {
+                panic!("Failed to retrieve polls: {:?}", err);
+            }
+        }
+        Ok(())
+    }
 }
