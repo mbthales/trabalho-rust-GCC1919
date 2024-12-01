@@ -1,5 +1,5 @@
-use rusqlite::{Connection, Result};
-use std::io;
+use rusqlite::{Connection, Result, types::ToSqlOutput, ToSql, types::FromSqlError, types::ValueRef, types::FromSql};
+use std::{io, fmt};
 use chrono::{Local,TimeZone};
 use uuid::Uuid;
 
@@ -24,11 +24,44 @@ struct VotePoll {
 struct Poll {
     id: Uuid, //Could have used a sequential one but I find it easier
     question: String,
+    poll_duration: PollDuration,
     create_date: i64,
     expiration_date: i64,
     positive_votes: i16,
     negative_votes: i16,
 }
+
+#[derive(Debug, Copy, Clone)]
+enum PollDuration {
+    OneWeek = 7,
+    OneMonth = 30,
+}
+
+impl FromSql for PollDuration {
+    fn column_result(value: ValueRef<'_>) -> Result<Self, FromSqlError> {
+        match value.as_i64() {
+            Ok(7) => Ok(PollDuration::OneWeek),
+            Ok(30) => Ok(PollDuration::OneMonth),
+            Ok(_) | Err(_) => Err(FromSqlError::Other("Invalid poll duration".into())),
+        }
+    }
+}
+
+impl ToSql for PollDuration {
+    fn to_sql(&self) -> Result<ToSqlOutput<'_>> {
+        Ok(ToSqlOutput::from(*self as i8))
+    }
+}
+
+impl fmt::Display for PollDuration {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PollDuration::OneWeek => write!(f, "7"),
+            PollDuration::OneMonth => write!(f, "30"),
+        }
+    }
+}
+
 
 impl Vote {
     fn get_poll_votes(conn: &Connection) -> Result<Vec<VotePoll>>{
@@ -266,15 +299,16 @@ impl Vote {
 
 impl Poll {
     fn get_polls(conn: &Connection) -> Result<Vec<Poll>> {
-        let mut stmt = conn.prepare("SELECT id, question, create_date, expiration_date, positive_votes, negative_votes FROM Poll")?;
+        let mut stmt = conn.prepare("SELECT id, question, poll_duration, create_date, expiration_date, positive_votes, negative_votes FROM Poll")?;
         let poll_iter = stmt.query_map([], |row| {
             Ok(Poll {
                 id: Uuid::parse_str(row.get::<_, String>(0)?.as_str()).unwrap(),
                 question: row.get(1)?,
-                create_date: row.get(2)?,
-                expiration_date: row.get(3)?,
-                positive_votes: row.get(4)?,
-                negative_votes: row.get(5)?,
+                poll_duration: row.get(2)?,
+                create_date: row.get(3)?,
+                expiration_date: row.get(4)?,
+                positive_votes: row.get(5)?,
+                negative_votes: row.get(6)?,
             })
         })?;
         let mut polls = Vec::new();
@@ -290,6 +324,9 @@ impl Poll {
     fn create_poll(conn: &Connection) -> Result<()>  {
         let mut question = String::new();
         let mut input_days = String::new();
+        let poll_duration: Option<PollDuration>;
+        let mut create_date: i64;
+        let mut expiration_date: i64;
         
         loop{
             println!("\nWrite your question below: ");
@@ -316,29 +353,32 @@ impl Poll {
                 .read_line(&mut input_days)
                 .expect("Failed to read days");
             
-                let input_days: u32 = match input_days.trim().parse() {
-                    Ok(num) => num,
-                    Err(_) => {
-                        println!("\nInvalid input. Please enter a number.");
-                        input_days.clear();
-                        continue;
-                    }
-                };
-
-                if input_days == 7 || input_days == 30 {
-                    break;
-                } else{
-                    println!("\nOnly can be 7 days or 30 days.");
+            let input_days_trimmed = input_days.trim();
+            
+            poll_duration = match input_days_trimmed.parse::<i8>() {
+                Ok(7) =>  {
+                    create_date = Local::now().timestamp();
+                    expiration_date = create_date + 24*60*60*7;
+                    Some(PollDuration::OneWeek)
+                },
+                Ok(30) =>  {
+                    create_date = Local::now().timestamp();
+                    expiration_date = create_date + 24*60*60*30;
+                    Some(PollDuration::OneMonth)
                 }
+                _ => {
+                    println!("\nInvalid input. Please enter 7 or 30.");
+                    input_days.clear();
+                    continue;
+                }
+            };
+            break;
         }
 
-        let days_until_expiration: i64 = input_days.trim().parse().unwrap();
-
-        let create_date = Local::now().timestamp();
-        let expiration_date = create_date + 24*60*60*days_until_expiration;
         let poll = Poll {
             id: Uuid::new_v4(),
             question: question.trim().to_string(),
+            poll_duration: poll_duration.expect("Poll duration can't be empty"),
             create_date,
             expiration_date,
             positive_votes: 0,
@@ -346,10 +386,11 @@ impl Poll {
         };
 
         conn.execute(
-            "INSERT INTO Poll (id, question, create_date, expiration_date, positive_votes, negative_votes ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO Poll (id, question, poll_duration, create_date, expiration_date, positive_votes, negative_votes ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             &[
                 &poll.id.to_string(),
                 &poll.question,
+                &poll.poll_duration.to_string(),
                 &poll.create_date.to_string(),
                 &poll.expiration_date.to_string(),
                 &poll.positive_votes.to_string(),
@@ -366,17 +407,22 @@ impl Poll {
 
     fn edit_poll(conn: &Connection) -> Result<()>  {
         let mut choice = String::new();
+        let mut input_days = String::new();
         let mut new_question = String::new();
+        let mut poll_duration: Option<PollDuration>;
+        let mut create_date;
+        let mut expiration_date;
         
-        let mut stmt = conn.prepare("SELECT id, question, create_date, expiration_date, positive_votes, negative_votes FROM Poll")?;
+        let mut stmt = conn.prepare("SELECT id, question, poll_duration, create_date, expiration_date, positive_votes, negative_votes FROM Poll")?;
         let poll_iter = stmt.query_map([], |row| {
             Ok(Poll {
                 id: Uuid::parse_str(row.get::<_, String>(0)?.as_str()).unwrap(),
                 question: row.get(1)?,
-                create_date: row.get(2)?,
-                expiration_date: row.get(3)?,
-                positive_votes: row.get(4)?,
-                negative_votes: row.get(5)?,
+                poll_duration: row.get(2)?,
+                create_date: row.get(3)?,
+                expiration_date: row.get(4)?,
+                positive_votes: row.get(5)?,
+                negative_votes: row.get(6)?,
             })
         })?;
         let mut polls = Vec::new();
@@ -407,8 +453,12 @@ impl Poll {
             break;
         }
 
+        let choice: usize = choice.trim().parse().unwrap();
+
+        let selected_poll = &polls[choice - 1];
+
         loop{
-            println!("\nWrite your question below:: ");
+            println!("\nWrite your question below: ");
             io::stdin()
                 .read_line(&mut new_question)
                 .expect("\nFailed to read poll Question");
@@ -426,12 +476,72 @@ impl Poll {
             }
         }
 
-        let choice: usize = choice.trim().parse().unwrap();
+        loop{
+            let mut new_choice = String::new();
+        
+            println!("\nDo You want to set a new poll duration? (y/n)");
+            io::stdin()
+                .read_line(&mut new_choice)
+                .expect("Error");
 
-        let selected_poll = &polls[choice - 1];
+            if new_choice.trim() == "n" {
+                poll_duration = Some(selected_poll.poll_duration);
+                create_date = selected_poll.create_date;
+                expiration_date = selected_poll.expiration_date;
+                break;
+            } else if new_choice.trim() == "y"{ 
+                loop {
+
+                    println!("\n7 days or 30 days until expiration?");
+                    io::stdin()
+                        .read_line(&mut input_days)
+                        .expect("Failed to read days");
+
+                    let input_days_trimmed = input_days.trim();
+                    
+                    poll_duration = match input_days_trimmed.parse::<i8>() {
+                        Ok(7) => {
+                            create_date = Local::now().timestamp();
+                            expiration_date = create_date + 24*60*60*7;
+                            Some(PollDuration::OneWeek)
+                        },
+                        Ok(30) => {
+                            create_date = Local::now().timestamp();
+                            expiration_date = create_date + 24*60*60*30;
+                            Some(PollDuration::OneMonth) 
+                        }
+                        _ => {
+                            println!("\nInvalid input. Please enter 7 or 30 Days.");
+                            input_days.clear();
+                            continue;
+                        }
+                    };   
+                    break; 
+                }
+                break;
+            } 
+            else{
+                println!("\nInvalid input. Please enter 'y' or 'n'.");
+            }
+        }
+
+        let poll = Poll {
+            id: selected_poll.id,
+            question: new_question.trim().to_string(),
+            poll_duration: poll_duration.expect("Poll duration can't be empty"),
+            create_date,
+            expiration_date,
+            positive_votes: 0,
+            negative_votes: 0,
+        };
+
         conn.execute(
-            "UPDATE Poll SET question = ?1 WHERE id = ?2",
-            &[&new_question.trim(), &selected_poll.id.to_string().as_str()],
+            "UPDATE Poll SET question = ?1, poll_duration = ?2, create_date = ?3, expiration_date = ?4  WHERE id = ?5",
+            &[&poll.question,
+            &poll.poll_duration.to_string(),
+            &poll.create_date.to_string(),
+            &poll.expiration_date.to_string(),
+            &poll.id.to_string()],
         )?;
         println!("\nPoll {} edited Successfully", choice);
 
@@ -444,15 +554,16 @@ impl Poll {
         let mut choice = String::new();
         let mut confirmation = String::new();
 
-        let mut stmt = conn.prepare("SELECT id, question, create_date, expiration_date, positive_votes, negative_votes FROM Poll")?;
+        let mut stmt = conn.prepare("SELECT id, question, poll_duration, create_date, expiration_date, positive_votes, negative_votes FROM Poll")?;
         let poll_iter = stmt.query_map([], |row| {
             Ok(Poll {
                 id: Uuid::parse_str(row.get::<_, String>(0)?.as_str()).unwrap(),
                 question: row.get(1)?,
-                create_date: row.get(2)?,
-                expiration_date: row.get(3)?,
-                positive_votes: row.get(4)?,
-                negative_votes: row.get(5)?,
+                poll_duration: row.get(2)?,
+                create_date: row.get(3)?,
+                expiration_date: row.get(4)?,
+                positive_votes: row.get(5)?,
+                negative_votes: row.get(6)?,
             })
         })?;
         let mut polls = Vec::new();
@@ -515,6 +626,7 @@ fn create_tables(conn: &Connection) -> Result<()> {
         CREATE TABLE IF NOT EXISTS Poll (
              id TEXT PRIMARY KEY,
              question TEXT NOT NULL,
+             poll_duration INTEGER NOT NULL,
              create_date DATE NOT NULL,
              expiration_date DATE NOT NULL,
              positive_votes INTEGER NOT NULL,
@@ -584,12 +696,13 @@ fn menu (conn: &Connection) -> Result<()>{
                 let create_date = Local.timestamp_opt(poll.create_date, 0).unwrap();
                 let expiration_date = Local.timestamp_opt(poll.expiration_date, 0).unwrap();
 
-                println!("\nQuestion: {} \nPositive Votes: {}\nNegative Votes: {} \nCreate Date: {}\nExpiration Date: {}",
+                println!("\nQuestion: {} \nPositive Votes: {}\nNegative Votes: {} \nCreate Date: {}\nExpiration Date: {} \nTotal Poll Duration: {} Days",
                 poll.question, 
                 poll.positive_votes,
                 poll.negative_votes,
                 create_date.format("%d-%m-%Y %H:%M:%S"),
-                expiration_date.format("%d-%m-%Y %H:%M:%S"));
+                expiration_date.format("%d-%m-%Y %H:%M:%S"),
+                poll.poll_duration);
             }
 
             let _ = menu(conn);
