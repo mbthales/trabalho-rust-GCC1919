@@ -1,6 +1,8 @@
 use rusqlite::{Connection, Result};
 use std::io;
 use chrono::{Local,TimeZone};
+use uuid::Uuid;
+use crate::poll::*;
 
 mod vote;
 mod poll;
@@ -60,20 +62,56 @@ fn menu (conn: &Connection) -> Result<()>{
         if answer == "1" {
             let mut question = String::new();
             let mut input_days = String::new();
-            let mut poll_duration = String::new();
+            let poll_duration;
 
-            println!("\nWrite your question below: ");
-            io::stdin()
-                .read_line(&mut question)
-                .expect("Failed to read poll Question");
+            loop{
+                println!("\nWrite your question below:");
+                io::stdin()
+                    .read_line(&mut question)
+                    .expect("\nFailed to read poll Question");
+    
+                if question.trim().chars().count() > 0 {
+                    if question.chars().count() <= 150{
+                        break;
+                    } else{
+                        println!("\nQuestion is too long. Question only can have up to 150 chars.");
+                        question.clear()
+                    }
+                } else{
+                    println!("\nQuestion can't be empty");
+                    question.clear()
+                }
+            }
 
-            println!("\n7 days or 30 days until expiration?");
+
+            loop {
+    
+                println!("\n7 days or 30 days until expiration?");
                 io::stdin()
                     .read_line(&mut input_days)
                     .expect("Failed to read days");
+
+                let input_days_trimmed = input_days.trim();
+                
+                poll_duration = match input_days_trimmed.parse::<i8>() {
+                    Ok(7) => {
+                        Some(PollDuration::OneWeek)
+                    },
+                    Ok(30) => {
+                        Some(PollDuration::OneMonth) 
+                    }
+                    _ => {
+                        println!("\nInvalid input. Please enter 7 or 30 Days.");
+                        input_days.clear();
+                        continue;
+                    }
+                };   
+                break;
+            }
+
                 
 
-            let _ = poll::create_poll(conn, question.to_string(), poll_duration.to_string());
+            let _ = poll::create_poll(conn, question.to_string(), poll_duration.expect("to be 7 or 30").to_string());
             let _ = menu(conn);
             break;
         } else if answer == "2" {
@@ -83,7 +121,7 @@ fn menu (conn: &Connection) -> Result<()>{
             let mut answer = String::new();
             let mut comment = String::new();
 
-            if polls.len() == 0 {
+            if polls.is_empty() {
                 println!("\nThere are no polls to vote.");
                 let _ = menu(conn);
                 return Ok(());
@@ -138,12 +176,129 @@ fn menu (conn: &Connection) -> Result<()>{
             let _ = menu(conn);
             break;
         } else if answer == "3" {
-            let _ = poll::edit_poll(conn);
+            let mut new_question = String::new();
+            let mut  input_days = String::new();
+            let _create_date: i64;
+            let _expiration_date: i64;
+            let mut choice1 = String::new();
+            let mut choice2 = String::new();
+
+            let mut stmt = conn.prepare("SELECT id, question, poll_duration, create_date, expiration_date, positive_votes, negative_votes FROM Poll")?;
+            let poll_iter = stmt.query_map([], |row| {
+                Ok(Poll {
+                    id: Uuid::parse_str(row.get::<_, String>(0)?.as_str()).unwrap(),
+                    question: row.get(1)?,
+                    poll_duration: row.get(2)?,
+                    create_date: row.get(3)?,
+                    expiration_date: row.get(4)?,
+                    positive_votes: row.get(5)?,
+                    negative_votes: row.get(6)?,
+                })
+            })?;
+            let mut polls = Vec::new();
+        
+            for poll in poll_iter {
+                polls.push(poll?);
+            }
+    
+            if polls.is_empty() {
+                println!("\nThere are no polls to Edit.");
+                let _ = menu(conn);
+                return Ok(());
+            }
+            
+            loop{
+                println!("\nChose one poll to edit:");
+    
+                for (i, poll) in polls.iter().enumerate() {
+                    println!("{} - {}", i + 1, poll.question);
+                }
+                
+                
+                io::stdin().read_line(&mut choice1).expect("Failed to read the choice");
+    
+                let _choice1: usize = match choice1.trim().parse() {
+                    Ok(num) if num > 0 && num <= polls.len() => num,
+                    _ => {
+                        println!("\nInvalid input. Please enter a valid number.");
+                        choice1.clear();
+                        continue;
+                    }
+                };
+                break;
+            }
+
+            let choice1: usize = choice1.trim().parse().unwrap();
+
+            let _selected_poll = &polls[choice1 - 1];
+
+            loop{
+                println!("\nWrite your question below:");
+                io::stdin()
+                    .read_line(&mut new_question)
+                    .expect("\nFailed to read poll Question");
+    
+                if new_question.trim().chars().count() > 0 {
+                    if new_question.chars().count() <= 150{
+                        break;
+                    } else{
+                        println!("\nQuestion is too long. Question only can have up to 150 chars.");
+                        new_question.clear()
+                    }
+                } else{
+                    println!("\nQuestion can't be empty");
+                    new_question.clear()
+                }
+            }
+
+            loop{
+                println!("\nDo You want to set a new poll duration? (y/n)");
+                io::stdin()
+                    .read_line(&mut choice2)
+                    .expect("Error");
+    
+                if choice2.trim() == "n" {
+                    break;
+                } else if choice2.trim() == "y"{ 
+
+                    loop {
+    
+                        println!("\n7 days or 30 days until expiration?");
+                        io::stdin()
+                            .read_line(&mut input_days)
+                            .expect("Failed to read days");
+    
+                        let input_days_trimmed = input_days.trim();
+                        
+                        match input_days_trimmed.parse::<i8>() {
+                            Ok(7) => {
+                                Some(PollDuration::OneWeek)
+                            },
+                            Ok(30) => {
+                                Some(PollDuration::OneMonth) 
+                            }
+                            _ => {
+                                println!("\nInvalid input. Please enter 7 or 30 Days.");
+                                input_days.clear();
+                                continue;
+                            }
+                        };   
+                        break; 
+                    }
+                    break;
+                } 
+                else{
+                    println!("\nInvalid input. Please enter 'y' or 'n'.");
+                    choice2.clear();
+                }
+            }
+            let _ = poll::edit_poll(conn, choice1.to_string(), choice2.to_string(), new_question.to_string(), input_days.to_string());
+            let _ = menu(conn);
             break;
         } else if answer == "4" {
             let votes = vote::get_votes(conn)?;
 
-            if votes.len() == 0 {
+            if votes.is_empty() {
                 println!("\nThere are no votes to edit.");
                 let _ = menu(conn);
                 return Ok(());
@@ -215,12 +370,77 @@ fn menu (conn: &Connection) -> Result<()>{
 
             break;
         } else if answer == "5" {
-            let _ = poll::delete_poll(conn);
+            let mut choice = String::new();
+            let mut confirmation = String::new();
+    
+            let mut stmt = conn.prepare("SELECT id, question, poll_duration, create_date, expiration_date, positive_votes, negative_votes FROM Poll")?;
+            let poll_iter = stmt.query_map([], |row| {
+                Ok(Poll {
+                    id: Uuid::parse_str(row.get::<_, String>(0)?.as_str()).unwrap(),
+                    question: row.get(1)?,
+                    poll_duration: row.get(2)?,
+                    create_date: row.get(3)?,
+                    expiration_date: row.get(4)?,
+                    positive_votes: row.get(5)?,
+                    negative_votes: row.get(6)?,
+                })
+            })?;
+            let mut polls = Vec::new();
+        
+            for poll in poll_iter {
+                polls.push(poll?);
+            }
+            
+            if polls.is_empty() {
+                println!("\nThere are no polls to Delete.");
+                let _ = menu(conn);
+                return Ok(());
+            }
+    
+            loop{
+                println!("\nChose one poll to delete:");
+    
+                for (i, poll) in polls.iter().enumerate() {
+                    println!("{} - {}", i + 1, poll.question);
+                }
+                
+                
+                io::stdin().read_line(&mut choice).expect("Failed to read the choice");
+    
+                let _choice: usize = match choice.trim().parse() {
+                    Ok(num) if num > 0 && num <= polls.len() => num,
+                    _ => {
+                        println!("Invalid input. Please enter a valid number.");
+                        choice.clear();
+                        continue;
+                    }
+                };
+                break;
+            }
+            let choice: usize = choice.trim().parse().unwrap();
+    
+            println!("\nAre you sure you want to delete the poll: '{}'? (y/n)", polls[choice - 1].question );
+            io::stdin()
+                .read_line(&mut confirmation)
+                .expect("Error");
+    
+            if confirmation.trim() == "y" {
+                //Check if some poll.id is the same as poll_id. If it is equal it returns the index position then remove the poll from the polls list.
+                if let Some(_index) = polls.iter().position(|poll| poll.id == polls[choice - 1].id) {
+                    let _ = poll::delete_poll(conn, choice.to_string(), confirmation.to_string());
+                } else {
+                    panic!("Error When Deleting the Poll")
+                }
+            } else{
+                println!("\nCanceling operation")
+            }
+
+            let _ = menu(conn);
             break;
         } else if answer == "6" {
             let votes = vote::get_votes(conn)?;
 
-            if votes.len() == 0 {
+            if votes.is_empty() {
                 println!("\nThere are no votes to show.");
                 let _ = menu(conn);
                 break;
@@ -273,7 +493,7 @@ fn menu (conn: &Connection) -> Result<()>{
         } else if answer == "7" {
             let polls = poll::get_polls(conn)?;
 
-            if polls.len() == 0 {
+            if polls.is_empty() {
                 println!("\nThere are no polls to show.");
                 let _ = menu(conn);
                 break;
