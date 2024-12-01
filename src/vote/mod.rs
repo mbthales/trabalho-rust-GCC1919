@@ -49,7 +49,7 @@ pub fn get_votes(conn: &Connection) -> Result<Vec<VotePoll>>{
     Ok(votes)
 }
 
-pub fn create_vote (conn: &Connection, poll_id: Uuid, vote: &String, comment: String) -> Result<()> {
+pub fn create_vote (conn: &Connection, poll_id: Uuid, vote: &str, comment: String) -> Result<()> {
     let vote = Vote {
         id: Uuid::new_v4(),
         choice: match vote.trim() {
@@ -71,7 +71,7 @@ pub fn create_vote (conn: &Connection, poll_id: Uuid, vote: &String, comment: St
     conn.execute(
         "INSERT INTO Vote (id, choice, comment, voting_power, create_date, poll_id) 
         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-        &[
+        [
             &vote.id.to_string(),
             &choice,
             &vote.comment,
@@ -85,13 +85,13 @@ pub fn create_vote (conn: &Connection, poll_id: Uuid, vote: &String, comment: St
         VoteChoice::Yes => {
             conn.execute(
                 "UPDATE Poll SET positive_votes = positive_votes + 1 WHERE id = ?1",
-                &[&vote.poll_id.to_string()],
+                [&vote.poll_id.to_string()],
             )?;
         }
         VoteChoice::No => {
             conn.execute(
                 "UPDATE Poll SET negative_votes = negative_votes + 1 WHERE id = ?1",
-                &[&vote.poll_id.to_string()],
+                [&vote.poll_id.to_string()],
             )?;
         }
     }
@@ -105,28 +105,28 @@ pub fn edit_vote(conn: &Connection, current_vote: &VotePoll, selected_vote: &Vot
     if current_vote.choice.trim() == "y" && new_choice.trim() == "n" {
         conn.execute(
             "UPDATE Poll SET positive_votes = positive_votes - 1 WHERE id = ?1",
-            &[
+            [
                 &selected_vote.poll_id.to_string(),
             ],
         )?;
 
         conn.execute(
             "UPDATE Poll SET negative_votes = negative_votes + 1 WHERE id = ?1",
-            &[
+            [
                 &selected_vote.poll_id.to_string(),
             ],
         )?;
     } else if current_vote.choice.trim() == "n" && new_choice.trim() == "y" {
         conn.execute(
             "UPDATE Poll SET negative_votes = negative_votes - 1 WHERE id = ?1",
-            &[
+            [
                 &selected_vote.poll_id.to_string(),
             ],
         )?;
 
         conn.execute(
             "UPDATE Poll SET positive_votes = positive_votes + 1 WHERE id = ?1",
-            &[
+            [
                 &selected_vote.poll_id.to_string(),
             ],
         )?;
@@ -145,18 +145,18 @@ pub fn edit_vote(conn: &Connection, current_vote: &VotePoll, selected_vote: &Vot
 pub fn delete_vote(conn: &Connection, selected_vote: &VotePoll) -> Result<()> {
     conn.execute(
         "DELETE FROM Vote WHERE id = ?1",
-        &[selected_vote.id.to_string().as_str()],
+        [selected_vote.id.to_string().as_str()],
     )?;
 
     if selected_vote.choice.trim() == "y" {
         conn.execute(
             "UPDATE Poll SET positive_votes = positive_votes - 1 WHERE id = ?1",
-            &[selected_vote.poll_id.to_string().as_str()],
+            [selected_vote.poll_id.to_string().as_str()],
         )?;
     } else {
         conn.execute(
             "UPDATE Poll SET negative_votes = negative_votes - 1 WHERE id = ?1",
-            &[selected_vote.poll_id.to_string().as_str()],
+            [selected_vote.poll_id.to_string().as_str()],
         )?;
     }
 
