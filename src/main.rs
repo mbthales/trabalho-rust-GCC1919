@@ -2,6 +2,7 @@ use rusqlite::{Connection, Result, types::ToSqlOutput, ToSql, types::FromSqlErro
 use std::{io, fmt};
 use chrono::{Local,TimeZone};
 use uuid::Uuid;
+use std::error::Error;
 
 #[derive(Debug)]
 enum VoteChoice {
@@ -43,6 +44,27 @@ enum PollDuration {
     OneWeek = 7,
     OneMonth = 30,
 }
+
+#[derive(Debug)]
+struct ValidationError {
+    details: String,
+}
+
+impl ValidationError {
+    fn new(msg: &str) -> ValidationError {
+        ValidationError {
+            details: msg.to_string(),
+        }
+    }
+}
+
+impl fmt::Display for ValidationError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.details)
+    }
+}
+
+impl Error for ValidationError {}
 
 impl FromSql for PollDuration {
     fn column_result(value: ValueRef<'_>) -> Result<Self, FromSqlError> {
@@ -429,59 +451,50 @@ impl Poll {
     }
 
     // Receive the question and the duration in days
-    fn create_poll(conn: &Connection) -> Result<()>  {
-        let mut question = String::new();
-        let mut input_days = String::new();
-        let poll_duration: Option<PollDuration>;
+    fn create_poll(conn: &Connection, question: String, input_days: String) -> Result<Poll, Box<dyn Error>>  {
         let create_date: i64;
         let expiration_date: i64;
-        
-        loop{
-            println!("\nWrite your question below: ");
-            io::stdin()
-                .read_line(&mut question)
-                .expect("Failed to read poll Question");
 
-            if question.trim().chars().count() > 0 {
-                if question.chars().count() <= 150{
-                    break;
-                } else{
-                    println!("\nQuestion is too long. Question only can have up to 150 chars.");
-                    question.clear()
-                }
+                
+        if question.trim().chars().count() > 0 {
+            if question.chars().count() <= 150{
+                
             } else{
-                println!("\nQuestion can't be empty");
-                question.clear()
+                println!("\nQuestion is too long. Question only can have up to 150 chars.");
+                return Err(Box::new(ValidationError::new(
+                    "Question is too long. Question only can have up to 150 chars.",
+                )));
             }
+        } else{
+            println!("\nQuestion can't be empty");
+            return Err(Box::new(ValidationError::new(
+                "Question can't be empty",
+            )));
         }
+        
+        
 
-        loop{
-            println!("\n7 days or 30 days until expiration?");
-            io::stdin()
-                .read_line(&mut input_days)
-                .expect("Failed to read days");
-            
-            let input_days_trimmed = input_days.trim();
-            
-            poll_duration = match input_days_trimmed.parse::<i8>() {
-                Ok(7) =>  {
-                    create_date = Local::now().timestamp();
-                    expiration_date = create_date + 24*60*60*7;
-                    Some(PollDuration::OneWeek)
-                },
-                Ok(30) =>  {
-                    create_date = Local::now().timestamp();
-                    expiration_date = create_date + 24*60*60*30;
-                    Some(PollDuration::OneMonth)
-                }
-                _ => {
-                    println!("\nInvalid input. Please enter 7 or 30.");
-                    input_days.clear();
-                    continue;
-                }
-            };
-            break;
-        }
+        let input_days_trimmed = input_days.trim();
+                
+        let poll_duration = match input_days_trimmed.parse::<i8>() {
+            Ok(7) =>  {
+                create_date = Local::now().timestamp();
+                expiration_date = create_date + 24*60*60*7;
+                Some(PollDuration::OneWeek)
+            },
+            Ok(30) =>  {
+                create_date = Local::now().timestamp();
+                expiration_date = create_date + 24*60*60*30;
+                Some(PollDuration::OneMonth)
+            }
+            Ok(_) | Err(_) => {
+                return Err(Box::new(ValidationError::new(
+                    "Invalid input_days value. Must be 7 or 30.",
+                )));
+            }
+        };
+
+        
 
         let poll = Poll {
             id: Uuid::new_v4(),
@@ -504,13 +517,11 @@ impl Poll {
                 &poll.positive_votes.to_string(),
                 &poll.negative_votes.to_string(),
             ],
-        )?;
+        );
 
         println!("\nPoll Created!");
 
-        let _ = menu(conn);
-
-        Ok(())
+        Ok(poll)
     }
 
     fn edit_poll(conn: &Connection) -> Result<()>  {
@@ -801,7 +812,23 @@ fn menu (conn: &Connection) -> Result<()>{
         let answer = answer.trim();
 
         if answer == "1" {
-            let _ = Poll::create_poll(conn);
+            let mut question = String::new();
+            let mut input_days = String::new();
+            let mut poll_duration = String::new();
+
+            println!("\nWrite your question below: ");
+            io::stdin()
+                .read_line(&mut question)
+                .expect("Failed to read poll Question");
+
+            println!("\n7 days or 30 days until expiration?");
+                io::stdin()
+                    .read_line(&mut input_days)
+                    .expect("Failed to read days");
+                
+
+            let _ = Poll::create_poll(conn, question.to_string(), poll_duration.to_string());
+            let _ = menu(conn);
             break;
         } else if answer == "2" {
             let _ = Vote::choose_poll_to_vote(conn);
@@ -873,6 +900,8 @@ mod tests {
 
     use std::fs;
     use std::path::Path;
+
+    use crate::io::Cursor;
     
     #[test]
     fn test_get_polls() -> Result<()> {
@@ -881,7 +910,6 @@ mod tests {
     
         create_tables(&conn)?;
     
-        // Insert sample data
         let vote_id_2 = Uuid::new_v4().to_string();
     
         let now = Local::now().timestamp();
@@ -910,32 +938,7 @@ mod tests {
         )?;
 
         println!("Insert okay");
-        /*
-        let vote1 = Vote{
-            id: Uuid::new_v4(),
-            choice:  VoteChoice::Yes,
-            comment: "Comment about this poll".trim().to_string(),
-            voting_power: 5,
-            create_date: Local::now().timestamp(),
-            poll_id: poll.id,
-        };
 
-        
-        conn.execute(
-            "INSERT INTO Vote (id, choice, comment, voting_power, create_date, poll_id) 
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            &[
-                &vote1.id.to_string(),
-                &"y".trim().to_string(),
-                &vote1.comment,
-                &vote1.voting_power.to_string(),
-                &vote1.create_date.to_string(),
-                &vote1.poll_id.to_string(),
-            ]
-        )?;
-        */
-
-        // Obtemos o resultado da função get_polls
         let polls_output = Poll::get_polls(&conn);
 
         match polls_output {
@@ -947,6 +950,46 @@ mod tests {
             }
             Err(err) => {
                 panic!("Failed to retrieve polls: {:?}", err);
+            }
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn test_create_poll() -> Result<()> {
+        println!("Starting Test");
+        let conn = Connection::open_in_memory()?;
+    
+        create_tables(&conn)?;
+    
+        let now = Local::now().timestamp();
+
+        let poll = Poll {
+            id: Uuid::new_v4(),
+            question: "Do You like Rust?".trim().to_string(),
+            poll_duration: PollDuration::OneWeek,
+            create_date: Local::now().timestamp(),
+            expiration_date : Local::now().timestamp() + 24*60*60*7,
+            positive_votes: 0,
+            negative_votes: 0,
+        };
+        
+        let poll_output = Poll::create_poll(&conn, "Do You like Rust?".to_string(), "7".to_string());
+
+        println!("{:?}", poll);
+        println!("{:?}", poll_output);
+
+        match poll_output {
+            Ok(poll_generated) => {
+                assert_eq!(poll.question, poll_generated.question);
+                assert_eq!(poll.poll_duration, poll_generated.poll_duration);
+                assert_eq!(poll.create_date, poll_generated.create_date);
+                assert_eq!(poll.expiration_date, poll_generated.expiration_date);
+                assert_eq!(poll.positive_votes, poll_generated.positive_votes);
+                assert_eq!(poll.negative_votes, poll_generated.negative_votes);
+            }
+            Err(e) => {
+                eprintln!("Error: {}", e);
             }
         }
         Ok(())
