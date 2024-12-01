@@ -9,6 +9,10 @@ mod polls {
     use crate::poll::Poll;
     use crate::poll::PollDuration;
     use crate::poll::ValidationError;
+    use crate::vote;
+    use crate::vote::Vote;
+    use crate::vote::VoteChoice;
+
 
     #[test]
     fn test_get_polls() -> Result<()> {
@@ -1221,4 +1225,294 @@ mod polls {
             Ok(_) => panic!("Expected Error."),
         }       
     }
+
+    #[test]
+    fn test_get_votes() -> Result<()> {
+        let conn = Connection::open_in_memory()?;
+    
+        create_tables(&conn)?;
+
+        let poll = Poll {
+            id: Uuid::new_v4(),
+            question: "teste question?".trim().to_string(),
+            poll_duration: PollDuration::OneMonth,
+            create_date: Local::now().timestamp(),
+            expiration_date : Local::now().timestamp() + 24*60*60*30,
+            positive_votes: 0,
+            negative_votes: 0,
+        };
+    
+        conn.execute(
+            "INSERT INTO Poll (id, question, poll_duration, create_date, expiration_date, positive_votes, negative_votes ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            [
+                &poll.id.to_string(),
+                &poll.question,
+                &poll.poll_duration.to_string(),
+                &poll.create_date.to_string(),
+                &poll.expiration_date.to_string(),
+                &poll.positive_votes.to_string(),
+                &poll.negative_votes.to_string(),
+            ],
+        )?;
+
+        let vote = Vote {
+            id: Uuid::new_v4(),
+            choice: match "y".trim() {
+                "y" => VoteChoice::Yes,
+                "n" => VoteChoice::No,
+                _ => panic!("Invalid Vote"),
+            },
+            comment: "test".trim().to_string(),
+            voting_power: 1,
+            create_date: Local::now().timestamp(),
+            poll_id: poll.id,
+        };
+
+        let choice = match &vote.choice {
+            VoteChoice::Yes => "y".to_string(),
+            VoteChoice::No => "n".to_string(),
+        };
+
+        conn.execute(
+            "INSERT INTO Vote (id, choice, comment, voting_power, create_date, poll_id) 
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            &[
+                &vote.id.to_string(),
+                &choice,
+                &vote.comment,
+                &vote.voting_power.to_string(),
+                &vote.create_date.to_string(),
+                &vote.poll_id.to_string(),
+            ]
+        )?;
+    
+        let votes = vote::get_votes(&conn)?;
+
+        assert_eq!(votes.len(), 1);
+        assert_eq!(votes[0].id, vote.id);
+        assert_eq!(votes[0].choice, choice);
+        assert_eq!(votes[0].question, poll.question);
+        assert_eq!(votes[0].poll_id, poll.id);
+    
+        Ok(())
+    }
+
+    #[test]
+    fn test_delete_vote() -> Result<()> {
+        let conn = Connection::open_in_memory()?;
+    
+        create_tables(&conn)?;
+
+        let poll = Poll {
+            id: Uuid::new_v4(),
+            question: "teste question?".trim().to_string(),
+            poll_duration: PollDuration::OneMonth,
+            create_date: Local::now().timestamp(),
+            expiration_date : Local::now().timestamp() + 24*60*60*30,
+            positive_votes: 0,
+            negative_votes: 0,
+        };
+    
+        conn.execute(
+            "INSERT INTO Poll (id, question, poll_duration, create_date, expiration_date, positive_votes, negative_votes ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            [
+                &poll.id.to_string(),
+                &poll.question,
+                &poll.poll_duration.to_string(),
+                &poll.create_date.to_string(),
+                &poll.expiration_date.to_string(),
+                &poll.positive_votes.to_string(),
+                &poll.negative_votes.to_string(),
+            ],
+        )?;
+
+        let vote = Vote {
+            id: Uuid::new_v4(),
+            choice: match "y".trim() {
+                "y" => VoteChoice::Yes,
+                "n" => VoteChoice::No,
+                _ => panic!("Invalid Vote"),
+            },
+            comment: "test".trim().to_string(),
+            voting_power: 1,
+            create_date: Local::now().timestamp(),
+            poll_id: poll.id,
+        };
+
+        let choice = match &vote.choice {
+            VoteChoice::Yes => "y".to_string(),
+            VoteChoice::No => "n".to_string(),
+        };
+
+        conn.execute(
+            "INSERT INTO Vote (id, choice, comment, voting_power, create_date, poll_id) 
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            &[
+                &vote.id.to_string(),
+                &choice,
+                &vote.comment,
+                &vote.voting_power.to_string(),
+                &vote.create_date.to_string(),
+                &vote.poll_id.to_string(),
+            ]
+        )?;
+    
+        let votes = vote::get_votes(&conn)?;
+
+        assert_eq!(votes.len(), 1);
+        assert_eq!(votes[0].id, vote.id);
+        assert_eq!(votes[0].choice, choice);
+
+        let _ = vote::delete_vote(&conn, &votes[0]);
+
+        let votes = vote::get_votes(&conn)?;
+
+        assert_eq!(votes.len(), 0);
+
+        Ok(())
+        
+    }
+
+    #[test]
+    fn test_edit_vote() -> Result<()> {
+        let conn = Connection::open_in_memory()?;
+    
+        create_tables(&conn)?;
+
+        let poll = Poll {
+            id: Uuid::new_v4(),
+            question: "teste question?".trim().to_string(),
+            poll_duration: PollDuration::OneMonth,
+            create_date: Local::now().timestamp(),
+            expiration_date : Local::now().timestamp() + 24*60*60*30,
+            positive_votes: 0,
+            negative_votes: 0,
+        };
+    
+        conn.execute(
+            "INSERT INTO Poll (id, question, poll_duration, create_date, expiration_date, positive_votes, negative_votes ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            [
+                &poll.id.to_string(),
+                &poll.question,
+                &poll.poll_duration.to_string(),
+                &poll.create_date.to_string(),
+                &poll.expiration_date.to_string(),
+                &poll.positive_votes.to_string(),
+                &poll.negative_votes.to_string(),
+            ],
+        )?;
+
+        let vote = Vote {
+            id: Uuid::new_v4(),
+            choice: match "y".trim() {
+                "y" => VoteChoice::Yes,
+                "n" => VoteChoice::No,
+                _ => panic!("Invalid Vote"),
+            },
+            comment: "test".trim().to_string(),
+            voting_power: 1,
+            create_date: Local::now().timestamp(),
+            poll_id: poll.id,
+        };
+
+        let choice = match &vote.choice {
+            VoteChoice::Yes => "y".to_string(),
+            VoteChoice::No => "n".to_string(),
+        };
+
+        conn.execute(
+            "INSERT INTO Vote (id, choice, comment, voting_power, create_date, poll_id) 
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            &[
+                &vote.id.to_string(),
+                &choice,
+                &vote.comment,
+                &vote.voting_power.to_string(),
+                &vote.create_date.to_string(),
+                &vote.poll_id.to_string(),
+            ]
+        )?;
+    
+        let votes = vote::get_votes(&conn)?;
+
+        assert_eq!(votes.len(), 1);
+        assert_eq!(votes[0].id, vote.id);
+        assert_eq!(votes[0].choice, choice);
+
+        let _ = vote::edit_vote(&conn, &votes[0], &votes[0], "n".to_string(), "new comment".to_string());
+
+        let votes = vote::get_votes(&conn)?;
+
+        assert_eq!(votes.len(), 1);
+        assert_eq!(votes[0].id, vote.id);
+        assert_eq!(votes[0].choice, "n".to_string());
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_create_vote() -> Result<()> {
+        let conn = Connection::open_in_memory()?;
+    
+        create_tables(&conn)?;
+
+        let poll = Poll {
+            id: Uuid::new_v4(),
+            question: "teste question?".trim().to_string(),
+            poll_duration: PollDuration::OneMonth,
+            create_date: Local::now().timestamp(),
+            expiration_date : Local::now().timestamp() + 24*60*60*30,
+            positive_votes: 0,
+            negative_votes: 0,
+        };
+    
+        conn.execute(
+            "INSERT INTO Poll (id, question, poll_duration, create_date, expiration_date, positive_votes, negative_votes ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            [
+                &poll.id.to_string(),
+                &poll.question,
+                &poll.poll_duration.to_string(),
+                &poll.create_date.to_string(),
+                &poll.expiration_date.to_string(),
+                &poll.positive_votes.to_string(),
+                &poll.negative_votes.to_string(),
+            ],
+        )?;
+
+        let vote = Vote {
+            id: Uuid::new_v4(),
+            choice: match "y".trim() {
+                "y" => VoteChoice::Yes,
+                "n" => VoteChoice::No,
+                _ => panic!("Invalid Vote"),
+            },
+            comment: "test".trim().to_string(),
+            voting_power: 1,
+            create_date: Local::now().timestamp(),
+            poll_id: poll.id,
+        };
+
+        let choice = match &vote.choice {
+            VoteChoice::Yes => "y".to_string(),
+            VoteChoice::No => "n".to_string(),
+        };
+
+        let polls = poll::get_polls(&conn)?;
+        
+        assert_eq!(polls[0].positive_votes, 0);
+        
+        let _ = vote::create_vote(&conn, poll.id, &choice, vote.comment);
+
+        let votes = vote::get_votes(&conn)?;
+        let polls = poll::get_polls(&conn)?;
+
+        assert_eq!(votes.len(), 1);
+        assert_eq!(votes[0].choice, choice);
+        assert_eq!(votes[0].question, poll.question);
+        assert_eq!(votes[0].poll_id, poll.id);
+        assert_eq!(polls[0].positive_votes, 1);
+
+        Ok(())
+    }
+
 }
