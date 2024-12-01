@@ -3,11 +3,17 @@ use std::{io, fmt};
 use chrono::{Local,TimeZone};
 use uuid::Uuid;
 
+#[derive(Debug)]
+enum VoteChoice {
+    Yes,
+    No
+}
+
 //Create only to add to the poll struct
 #[derive(Debug)]
 struct Vote {
     id: Uuid,
-    choice: String,
+    choice:  VoteChoice,
     comment: String,
     voting_power: i16,
     create_date: i64,
@@ -19,6 +25,7 @@ struct VotePoll {
     id: Uuid,
     choice: String,
     question: String,
+    poll_id: Uuid,
 }
 #[derive(Debug)]
 struct Poll {
@@ -65,13 +72,14 @@ impl fmt::Display for PollDuration {
 
 impl Vote {
     fn get_poll_votes(conn: &Connection) -> Result<Vec<VotePoll>>{
-        let mut stmt = conn.prepare("SELECT Vote.id as id, Vote.choice as choice, Poll.question as question FROM Vote JOIN Poll ON Vote.poll_id = Poll.id")?;
+        let mut stmt = conn.prepare("SELECT Vote.id as id, Vote.choice as choice, Poll.question as question, Poll.id as poll_id FROM Vote JOIN Poll ON Vote.poll_id = Poll.id")?;
 
         let vote_iter = stmt.query_map([], |row| {
             Ok(VotePoll {
                 id: Uuid::parse_str(row.get::<_, String>(0)?.as_str()).unwrap(),
                 choice: row.get(1)?,
                 question: row.get(2)?,
+                poll_id: Uuid::parse_str(row.get::<_, String>(3)?.as_str()).unwrap(),
             })
         })?;
     
@@ -90,7 +98,7 @@ impl Vote {
         let mut comment = String::new();
     
         println!("\nYou vote? (y/n)");    
-        println!("\nDigit 'y' for yes and 'n' for no");
+        println!("Digit 'y' for yes and 'n' for no");
 
         io::stdin()
             .read_line(&mut vote)
@@ -110,42 +118,66 @@ impl Vote {
 
         let vote = Vote {
             id: Uuid::new_v4(),
-            choice: vote.trim().to_string(),
+            choice: match vote.trim() {
+                "y" => VoteChoice::Yes,
+                "n" => VoteChoice::No,
+                _ => panic!("Invalid Vote"),
+            },
             comment: comment.trim().to_string(),
             voting_power: 1,
             create_date: Local::now().timestamp(),
             poll_id,
         };
 
-        println!("{:?}", vote);
+        println!("\nYour vote was registered successfully!");
+
+        match vote.choice {
+            VoteChoice::Yes => {
+                conn.execute(
+                    "UPDATE Poll SET positive_votes = positive_votes + 1 WHERE id = ?1",
+                    &[&vote.poll_id.to_string()],
+                )?;
+            }
+            VoteChoice::No => {
+                conn.execute(
+                    "UPDATE Poll SET negative_votes = negative_votes + 1 WHERE id = ?1",
+                    &[&vote.poll_id.to_string()],
+                )?;
+            }
+        }
+
+        let choice = match &vote.choice {
+            VoteChoice::Yes => "y".to_string(),
+            VoteChoice::No => "n".to_string(),
+        };
 
         conn.execute(
-            "INSERT INTO Vote (id, choice, comment, voting_power, create_date, poll_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            [
+            "INSERT INTO Vote (id, choice, comment, voting_power, create_date, poll_id) 
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            &[
                 &vote.id.to_string(),
-                &vote.choice,
+                &choice,
                 &vote.comment,
                 &vote.voting_power.to_string(),
                 &vote.create_date.to_string(),
                 &vote.poll_id.to_string(),
-            ],
-        )?;
-
-        conn.execute(
-            "UPDATE Poll SET positive_votes = ?1 WHERE id = ?2",
-            [
-                &(1).to_string(),
-                &vote.poll_id.to_string(),
-            ],
+            ]
         )?;
 
         Ok(())
     }
 
     fn choose_poll_to_vote(conn: &Connection) -> Result<()> {
+        let polls = Poll::get_polls(conn)?;
+
+        if polls.len() == 0 {
+            println!("\nThere are no polls to vote.");
+            let _ = menu(conn);
+            return Ok(());
+        }
+
         println!("\nChoose one of the following polls:");
     
-        let polls = Poll::get_polls(conn)?;
     
         for (i, poll) in polls.iter().enumerate() {
             println!("{}. {}", i + 1, poll.question);
@@ -182,6 +214,12 @@ impl Vote {
     fn edit_vote(conn: &Connection) -> Result<()> {
         let votes = Vote::get_poll_votes(conn)?;
 
+        if votes.len() == 0 {
+            println!("\nThere are no votes to edit.");
+            let _ = menu(conn);
+            return Ok(());
+        }
+
         println!("\nChoose one of the following votes to edit:");
 
         for (i, vote) in votes.iter().enumerate() {
@@ -215,7 +253,7 @@ impl Vote {
 
         loop{
             println!("\nYou vote? (y/n)");    
-            println!("\nDigit 'y' for yes and 'n' for no");
+            println!("Digit 'y' for yes and 'n' for no");
 
             io::stdin()
                 .read_line(&mut new_choice)
@@ -240,6 +278,38 @@ impl Vote {
             }
         }
 
+        let current_vote = &votes[choice - 1];
+
+        if current_vote.choice.trim() == "y" && new_choice.trim() == "n" {
+            conn.execute(
+                "UPDATE Poll SET positive_votes = positive_votes - 1 WHERE id = ?1",
+                &[
+                    &selected_vote.poll_id.to_string(),
+                ],
+            )?;
+
+            conn.execute(
+                "UPDATE Poll SET negative_votes = negative_votes + 1 WHERE id = ?1",
+                &[
+                    &selected_vote.poll_id.to_string(),
+                ],
+            )?;
+        } else if current_vote.choice.trim() == "n" && new_choice.trim() == "y" {
+            conn.execute(
+                "UPDATE Poll SET negative_votes = negative_votes - 1 WHERE id = ?1",
+                &[
+                    &selected_vote.poll_id.to_string(),
+                ],
+            )?;
+
+            conn.execute(
+                "UPDATE Poll SET positive_votes = positive_votes + 1 WHERE id = ?1",
+                &[
+                    &selected_vote.poll_id.to_string(),
+                ],
+            )?;
+        }
+
         conn.execute(
             "UPDATE Vote SET choice = ?1, comment = ?2 WHERE id = ?3",
             [new_choice.trim(), new_comment.trim(), selected_vote.id.to_string().as_str()],
@@ -254,6 +324,13 @@ impl Vote {
 
     fn delete_poll_vote(conn: &Connection) -> Result<()> {
         let votes = Vote::get_poll_votes(conn)?;
+        let mut confirmation = String::new();
+
+        if votes.len() == 0 {
+            println!("\nThere are no votes to delete.");
+            let _ = menu(conn);
+            return Ok(());
+        }
 
         println!("\nChoose one of the following votes to delete:");
 
@@ -283,12 +360,43 @@ impl Vote {
 
         let selected_vote = &votes[choice - 1];
 
-        conn.execute(
-            "DELETE FROM Vote WHERE id = ?1",
-            [selected_vote.id.to_string().as_str()],
-        )?;
+        println!("\nAre you sure you want to delete the vote: {} - '{}'? (y/n)", votes[choice - 1].choice, votes[choice - 1].question);
 
-        println!("\nYour vote was removed successfully!");
+        io::stdin()
+            .read_line(&mut confirmation)
+            .expect("Error");
+
+        if confirmation.trim() == "y" {
+            if let Some(_index) = votes.iter().position(|poll| poll.id == votes[choice - 1].id) {
+                conn.execute(
+                    "DELETE FROM Poll WHERE id = ?1",
+                    &[votes[choice - 1].id.to_string().as_str()],
+                )?;
+
+                conn.execute(
+                    "DELETE FROM Vote WHERE id = ?1",
+                    &[selected_vote.id.to_string().as_str()],
+                )?;
+        
+                if selected_vote.choice == "y" {
+                    conn.execute(
+                        "UPDATE Poll SET positive_votes = positive_votes - 1 WHERE id = ?1",
+                        &[selected_vote.poll_id.to_string().as_str()],
+                    )?;
+                } else {
+                    conn.execute(
+                        "UPDATE Poll SET negative_votes = negative_votes - 1 WHERE id = ?1",
+                        &[selected_vote.poll_id.to_string().as_str()],
+                    )?;
+                }
+                println!("\nYour vote was removed successfully!");
+        
+            } else {
+                panic!("Error When Deleting the Poll")
+            }
+        } else{
+            println!("\nCanceling operation")
+        }
 
         let _ = menu(conn);
 
@@ -458,7 +566,7 @@ impl Poll {
         let selected_poll = &polls[choice - 1];
 
         loop{
-            println!("\nWrite your question below: ");
+            println!("\nWrite your question below:");
             io::stdin()
                 .read_line(&mut new_question)
                 .expect("\nFailed to read poll Question");
@@ -535,6 +643,7 @@ impl Poll {
             negative_votes: 0,
         };
 
+
         conn.execute(
             "UPDATE Poll SET question = ?1, poll_duration = ?2, create_date = ?3, expiration_date = ?4  WHERE id = ?5",
             [
@@ -545,6 +654,7 @@ impl Poll {
                 &poll.id.to_string()
             ],
         )?;
+
         println!("\nPoll {} edited Successfully", choice);
 
         let _ = menu(conn);
@@ -596,7 +706,7 @@ impl Poll {
         }
         let choice: usize = choice.trim().parse().unwrap();
 
-        println!("\nAre you sure you want to delete the poll: {}? (y/n)", polls[choice - 1].question );
+        println!("\nAre you sure you want to delete the poll: '{}'? (y/n)", polls[choice - 1].question );
         io::stdin()
             .read_line(&mut confirmation)
             .expect("Error");
@@ -664,6 +774,7 @@ fn menu (conn: &Connection) -> Result<()>{
         println!("6 - Delete a Vote");
         println!("7 - View Results");
         println!("8 - Exit");
+
         let mut answer = String::new();
 
         io::stdin()
@@ -692,6 +803,12 @@ fn menu (conn: &Connection) -> Result<()>{
             break;
         } else if answer == "7" {
             let polls = Poll::get_polls(conn)?;
+
+            if polls.len() == 0 {
+                println!("\nThere are no polls to show.");
+                let _ = menu(conn);
+                break;
+            }
 
             for poll in polls {
                 
