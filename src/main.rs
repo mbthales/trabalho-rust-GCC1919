@@ -836,7 +836,7 @@ fn menu (conn: &Connection) -> Result<()>{
     Ok(())
 }
 fn main() -> Result<()> {
-    let conn = Connection::open_in_memory()?;
+    let conn = Connection::open()?;
     create_tables(&conn)?;
 
     println!("Hello!");    
