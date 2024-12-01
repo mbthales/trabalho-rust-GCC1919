@@ -114,14 +114,14 @@ impl Vote {
             comment: comment.trim().to_string(),
             voting_power: 1,
             create_date: Local::now().timestamp(),
-            poll_id: poll_id,
+            poll_id,
         };
 
         println!("{:?}", vote);
 
         conn.execute(
             "INSERT INTO Vote (id, choice, comment, voting_power, create_date, poll_id) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            &[
+            [
                 &vote.id.to_string(),
                 &vote.choice,
                 &vote.comment,
@@ -133,7 +133,7 @@ impl Vote {
 
         conn.execute(
             "UPDATE Poll SET positive_votes = ?1 WHERE id = ?2",
-            &[
+            [
                 &(1).to_string(),
                 &vote.poll_id.to_string(),
             ],
@@ -242,7 +242,7 @@ impl Vote {
 
         conn.execute(
             "UPDATE Vote SET choice = ?1, comment = ?2 WHERE id = ?3",
-            &[new_choice.trim(), new_comment.trim(), &selected_vote.id.to_string().as_str()],
+            [new_choice.trim(), new_comment.trim(), selected_vote.id.to_string().as_str()],
         )?;
 
         println!("\nYour vote was edited successfully!");
@@ -285,7 +285,7 @@ impl Vote {
 
         conn.execute(
             "DELETE FROM Vote WHERE id = ?1",
-            &[selected_vote.id.to_string().as_str()],
+            [selected_vote.id.to_string().as_str()],
         )?;
 
         println!("\nYour vote was removed successfully!");
@@ -325,8 +325,8 @@ impl Poll {
         let mut question = String::new();
         let mut input_days = String::new();
         let poll_duration: Option<PollDuration>;
-        let mut create_date: i64;
-        let mut expiration_date: i64;
+        let create_date: i64;
+        let expiration_date: i64;
         
         loop{
             println!("\nWrite your question below: ");
@@ -387,7 +387,7 @@ impl Poll {
 
         conn.execute(
             "INSERT INTO Poll (id, question, poll_duration, create_date, expiration_date, positive_votes, negative_votes ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            &[
+            [
                 &poll.id.to_string(),
                 &poll.question,
                 &poll.poll_duration.to_string(),
@@ -409,9 +409,9 @@ impl Poll {
         let mut choice = String::new();
         let mut input_days = String::new();
         let mut new_question = String::new();
-        let mut poll_duration: Option<PollDuration>;
-        let mut create_date;
-        let mut expiration_date;
+        let poll_duration: Option<PollDuration>;
+        let create_date;
+        let expiration_date;
         
         let mut stmt = conn.prepare("SELECT id, question, poll_duration, create_date, expiration_date, positive_votes, negative_votes FROM Poll")?;
         let poll_iter = stmt.query_map([], |row| {
@@ -442,7 +442,7 @@ impl Poll {
             
             io::stdin().read_line(&mut choice).expect("Failed to read the choice");
 
-            let choice: usize = match choice.trim().parse() {
+            let _choice: usize = match choice.trim().parse() {
                 Ok(num) if num > 0 && num <= polls.len() => num,
                 _ => {
                     println!("\nInvalid input. Please enter a valid number.");
@@ -537,11 +537,13 @@ impl Poll {
 
         conn.execute(
             "UPDATE Poll SET question = ?1, poll_duration = ?2, create_date = ?3, expiration_date = ?4  WHERE id = ?5",
-            &[&poll.question,
-            &poll.poll_duration.to_string(),
-            &poll.create_date.to_string(),
-            &poll.expiration_date.to_string(),
-            &poll.id.to_string()],
+            [
+                &poll.question,
+                &poll.poll_duration.to_string(),
+                &poll.create_date.to_string(),
+                &poll.expiration_date.to_string(),
+                &poll.id.to_string()
+            ],
         )?;
         println!("\nPoll {} edited Successfully", choice);
 
@@ -582,7 +584,7 @@ impl Poll {
             
             io::stdin().read_line(&mut choice).expect("Failed to read the choice");
 
-            let choice: usize = match choice.trim().parse() {
+            let _choice: usize = match choice.trim().parse() {
                 Ok(num) if num > 0 && num <= polls.len() => num,
                 _ => {
                     println!("Invalid input. Please enter a valid number.");
@@ -601,10 +603,10 @@ impl Poll {
 
         if confirmation.trim() == "y" {
             //Check if some poll.id is the same as poll_id. If it is equal it returns the index position then remove the poll from the polls list.
-            if let Some(index) = polls.iter().position(|poll| poll.id == polls[choice - 1].id) {
+            if let Some(_index) = polls.iter().position(|poll| poll.id == polls[choice - 1].id) {
                 conn.execute(
                     "DELETE FROM Poll WHERE id = ?1",
-                    &[polls[choice - 1].id.to_string().as_str()],
+                    [polls[choice - 1].id.to_string().as_str()],
                 )?;
                 println!("\nPoll Removed Successfuly!");
             } else {
@@ -671,22 +673,22 @@ fn menu (conn: &Connection) -> Result<()>{
         let answer = answer.trim();
 
         if answer == "1" {
-            let _ = Poll::create_poll(&conn);
+            let _ = Poll::create_poll(conn);
             break;
         } else if answer == "2" {
-            let _ = Vote::choose_poll_to_vote(&conn);
+            let _ = Vote::choose_poll_to_vote(conn);
             break;
         } else if answer == "3" {
-            let _ = Poll::edit_poll(&conn);
+            let _ = Poll::edit_poll(conn);
             break;
         } else if answer == "4" {
-            let _ = Vote::edit_vote(&conn);
+            let _ = Vote::edit_vote(conn);
             break;
         } else if answer == "5" {
-            let _ = Poll::delete_poll(&conn);
+            let _ = Poll::delete_poll(conn);
             break;
         } else if answer == "6" {
-            let _ = Vote::delete_poll_vote(&conn);
+            let _ = Vote::delete_poll_vote(conn);
             break;
         } else if answer == "7" {
             let polls = Poll::get_polls(conn)?;
@@ -717,7 +719,7 @@ fn menu (conn: &Connection) -> Result<()>{
     Ok(())
 }
 fn main() -> Result<()> {
-    let conn = Connection::open("database.db")?;
+    let conn = Connection::open_in_memory()?;
     create_tables(&conn)?;
 
     println!("Hello!");    
