@@ -9,10 +9,6 @@ mod polls {
     use crate::poll::Poll;
     use crate::poll::PollDuration;
     use crate::poll::ValidationError;
-    use crate::vote;
-    use crate::vote::Vote;
-    use crate::vote::VoteChoice;
-
 
     #[test]
     fn test_get_polls() -> Result<()> {
@@ -1065,7 +1061,6 @@ mod polls {
         }       
     }
 
-
     #[test]
     fn test_delete_poll_invalid_poll_index() -> Result<()> {
         println!("Starting Test");
@@ -1225,6 +1220,25 @@ mod polls {
             Ok(_) => panic!("Expected Error."),
         }       
     }
+}
+
+#[cfg(test)]
+mod votes {
+    use rusqlite::{Connection, Result};
+    
+    use uuid::Uuid;
+    use chrono::Local;
+    
+    use crate::create_tables;
+    
+    use crate::vote;
+    use crate::vote::Vote;
+    use crate::vote::VoteChoice;
+    use crate::vote::ValidationError;
+    use crate::poll::PollDuration;
+    use crate::poll;
+    use crate::poll::Poll;
+
 
     #[test]
     fn test_get_votes() -> Result<()> {
@@ -1266,6 +1280,7 @@ mod polls {
             voting_power: 1,
             create_date: Local::now().timestamp(),
             poll_id: poll.id,
+            poll_question: poll.question,
         };
 
         let choice = match &vote.choice {
@@ -1290,8 +1305,12 @@ mod polls {
 
         assert_eq!(votes.len(), 1);
         assert_eq!(votes[0].id, vote.id);
-        assert_eq!(votes[0].choice, choice);
-        assert_eq!(votes[0].question, poll.question);
+        assert_eq!(votes[0].choice, match choice.as_str() {
+            "y" => VoteChoice::Yes,
+            "n" => VoteChoice::No,
+            _ => panic!("Invalid Vote"),
+        });
+        assert_eq!(votes[0].poll_question, vote.poll_question);
         assert_eq!(votes[0].poll_id, poll.id);
     
         Ok(())
@@ -1337,6 +1356,7 @@ mod polls {
             voting_power: 1,
             create_date: Local::now().timestamp(),
             poll_id: poll.id,
+            poll_question: poll.question,
         };
 
         let choice = match &vote.choice {
@@ -1361,7 +1381,7 @@ mod polls {
 
         assert_eq!(votes.len(), 1);
         assert_eq!(votes[0].id, vote.id);
-        assert_eq!(votes[0].choice, choice);
+        assert_eq!(votes[0].choice, vote.choice);
 
         let _ = vote::delete_vote(&conn, &votes[0]);
 
@@ -1413,6 +1433,7 @@ mod polls {
             voting_power: 1,
             create_date: Local::now().timestamp(),
             poll_id: poll.id,
+            poll_question: poll.question,
         };
 
         let choice = match &vote.choice {
@@ -1437,7 +1458,7 @@ mod polls {
 
         assert_eq!(votes.len(), 1);
         assert_eq!(votes[0].id, vote.id);
-        assert_eq!(votes[0].choice, choice);
+        assert_eq!(votes[0].choice, vote.choice);
 
         let _ = vote::edit_vote(&conn, &votes[0], &votes[0], "n".to_string(), "new comment".to_string());
 
@@ -1445,7 +1466,7 @@ mod polls {
 
         assert_eq!(votes.len(), 1);
         assert_eq!(votes[0].id, vote.id);
-        assert_eq!(votes[0].choice, "n".to_string());
+        assert_eq!(votes[0].choice, VoteChoice::No);
 
         Ok(())
     }
@@ -1453,19 +1474,19 @@ mod polls {
     #[test]
     fn test_create_vote() -> Result<()> {
         let conn = Connection::open_in_memory()?;
-    
+        
         create_tables(&conn)?;
-
+    
         let poll = Poll {
             id: Uuid::new_v4(),
             question: "teste question?".trim().to_string(),
             poll_duration: PollDuration::OneMonth,
             create_date: Local::now().timestamp(),
-            expiration_date : Local::now().timestamp() + 24*60*60*30,
+            expiration_date: Local::now().timestamp() + 24*60*60*30,
             positive_votes: 0,
             negative_votes: 0,
         };
-    
+        
         conn.execute(
             "INSERT INTO Poll (id, question, poll_duration, create_date, expiration_date, positive_votes, negative_votes ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             [
@@ -1478,8 +1499,8 @@ mod polls {
                 &poll.negative_votes.to_string(),
             ],
         )?;
-
-        let vote = Vote {
+    
+        let vote_1 = Vote {
             id: Uuid::new_v4(),
             choice: match "y".trim() {
                 "y" => VoteChoice::Yes,
@@ -1490,29 +1511,135 @@ mod polls {
             voting_power: 1,
             create_date: Local::now().timestamp(),
             poll_id: poll.id,
+            poll_question: poll.question.clone(),
         };
-
-        let choice = match &vote.choice {
+    
+        let choice = match &vote_1.choice {
             VoteChoice::Yes => "y".to_string(),
             VoteChoice::No => "n".to_string(),
         };
-
+    
         let polls = poll::get_polls(&conn)?;
         
         assert_eq!(polls[0].positive_votes, 0);
         
-        let _ = vote::create_vote(&conn, poll.id, &choice, vote.comment);
-
+        let _ = vote::create_vote(&conn, poll.clone(), &choice, vote_1.comment); // Clone poll here too
+    
         let votes = vote::get_votes(&conn)?;
         let polls = poll::get_polls(&conn)?;
-
+        
         assert_eq!(votes.len(), 1);
-        assert_eq!(votes[0].choice, choice);
-        assert_eq!(votes[0].question, poll.question);
+        assert_eq!(votes[0].choice, vote_1.choice);
+        assert_eq!(votes[0].poll_question, poll.question);
         assert_eq!(votes[0].poll_id, poll.id);
         assert_eq!(polls[0].positive_votes, 1);
-
+        
+        let vote_2 = Vote {
+            id: Uuid::new_v4(),
+            choice: match "n".trim() {
+                "y" => VoteChoice::Yes,
+                "n" => VoteChoice::No,
+                _ => panic!("Invalid Vote"),
+            },
+            comment: "testing".trim().to_string(),
+            voting_power: 1,
+            create_date: Local::now().timestamp(),
+            poll_id: poll.id,
+            poll_question: poll.question.clone(),
+        };
+    
+        let choice = match &vote_2.choice {
+            VoteChoice::Yes => "y".to_string(),
+            VoteChoice::No => "n".to_string(),
+        };
+    
+        let _ = vote::create_vote(&conn, poll.clone(), &choice, vote_2.comment); // Clone poll again here
+    
+        let votes = vote::get_votes(&conn)?;
+        let polls = poll::get_polls(&conn)?;
+    
+        assert_eq!(votes.len(), 2);
+        assert_eq!(votes[1].choice, vote_2.choice);
+        assert_eq!(votes[1].poll_question, poll.question);
+        assert_eq!(polls[0].negative_votes, 1);
+    
         Ok(())
     }
+    
 
+    #[test]
+
+    fn test_comment_to_long() -> Result<()>{
+        let conn = Connection::open_in_memory()?;
+        
+        create_tables(&conn)?;
+    
+        let poll = Poll {
+            id: Uuid::new_v4(),
+            question: "teste question?".trim().to_string(),
+            poll_duration: PollDuration::OneMonth,
+            create_date: Local::now().timestamp(),
+            expiration_date: Local::now().timestamp() + 24*60*60*30,
+            positive_votes: 0,
+            negative_votes: 0,
+        };
+        
+        conn.execute(
+            "INSERT INTO Poll (id, question, poll_duration, create_date, expiration_date, positive_votes, negative_votes ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            [
+                &poll.id.to_string(),
+                &poll.question,
+                &poll.poll_duration.to_string(),
+                &poll.create_date.to_string(),
+                &poll.expiration_date.to_string(),
+                &poll.positive_votes.to_string(),
+                &poll.negative_votes.to_string(),
+            ],
+        )?;
+    
+        let vote = Vote {
+            id: Uuid::new_v4(),
+            choice: match "y".trim() {
+                "y" => VoteChoice::Yes,
+                "n" => VoteChoice::No,
+                _ => panic!("Invalid Vote"),
+            },
+            comment: "test".repeat(151).trim().to_string(),
+            voting_power: 1,
+            create_date: Local::now().timestamp(),
+            poll_id: poll.id,
+            poll_question: poll.question.clone(),
+        };
+    
+        let choice = match &vote.choice {
+            VoteChoice::Yes => "y".to_string(),
+            VoteChoice::No => "n".to_string(),
+        };
+    
+        let polls = poll::get_polls(&conn)?;
+        
+        assert_eq!(polls[0].positive_votes, 0);
+        
+        let vote_output = vote::create_vote(&conn, poll.clone(), &choice, vote.comment); // Clone poll here too
+    
+        let expected_error =  ValidationError::new(
+            "Comment is too long. Comment only can have up to 100 chars.",
+        );
+
+        match vote_output {
+            Err(err) => {
+                println!("Output error: {:?}", err);
+
+                // Tente converter o erro para ValidationError
+                if let Some(validation_error) = err.downcast_ref::<ValidationError>() {
+                    assert_eq!(validation_error, &expected_error, "Different Error Messages");
+                    Ok(())
+                } else {
+                    panic!("Expected ValidationError Type");
+                }
+            }
+            Ok(_) => panic!("Expected Error."),
+        }
+
+    }
 }

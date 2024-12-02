@@ -1,5 +1,5 @@
 use rusqlite::{Connection, Result, types::ToSqlOutput, ToSql, types::FromSqlError, types::ValueRef, types::FromSql};
-use std::{fmt};
+use std::fmt;
 use chrono::Local;
 use uuid::Uuid;
 use std::error::Error;

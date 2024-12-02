@@ -2,7 +2,6 @@ use rusqlite::{Connection, Result};
 use std::io;
 use chrono::{Local,TimeZone};
 use uuid::Uuid;
-use crate::poll::*;
 
 mod vote;
 mod poll;
@@ -43,13 +42,14 @@ fn menu (conn: &Connection) -> Result<()>{
     loop {
         println!("\nWhat do you want to do?");
         println!("1 - Create a Poll");
-        println!("2 - Vote in a Poll");
+        println!("2 - Vote on a Poll");
         println!("3 - Edit a Poll");
         println!("4 - Edit a Vote");
         println!("5 - Delete a Poll");
         println!("6 - Delete a Vote");
         println!("7 - View Results");
-        println!("8 - Exit");
+        println!("8 - View Votes");
+        println!("9 - Exit");
 
         let mut answer = String::new();
 
@@ -95,10 +95,10 @@ fn menu (conn: &Connection) -> Result<()>{
                 
                 poll_duration = match input_days_trimmed.parse::<i8>() {
                     Ok(7) => {
-                        Some(PollDuration::OneWeek)
+                        Some(poll::PollDuration::OneWeek)
                     },
                     Ok(30) => {
-                        Some(PollDuration::OneMonth) 
+                        Some(poll::PollDuration::OneMonth) 
                     }
                     _ => {
                         println!("\nInvalid input. Please enter 7 or 30 Days.");
@@ -107,15 +107,14 @@ fn menu (conn: &Connection) -> Result<()>{
                     }
                 };   
                 break;
-            }
-
-                
+            }      
 
             let _ = poll::create_poll(conn, question.to_string(), poll_duration.expect("to be 7 or 30").to_string());
             let _ = menu(conn);
             break;
         } else if answer == "2" {
             let polls = poll::get_polls(conn)?;
+
             let mut choice = String::new();
             let mut vote = String::new();
             let mut answer = String::new();
@@ -150,7 +149,7 @@ fn menu (conn: &Connection) -> Result<()>{
             }
             let choice: usize = choice.trim().parse().unwrap();
     
-            let poll_id = polls[choice - 1].id;
+            let poll = &polls[choice - 1];
 
             println!("\nYou vote? (y/n)");    
             println!("Digit 'y' for yes and 'n' for no");
@@ -171,9 +170,10 @@ fn menu (conn: &Connection) -> Result<()>{
                     .expect("Error");
             }
 
-            let _ = vote::create_vote(conn, poll_id, &vote, comment);
+            let _ = vote::create_vote(conn, poll.clone(), &vote, comment);
 
             let _ = menu(conn);
+
             break;
         } else if answer == "3" {
             let mut new_question = String::new();
@@ -185,7 +185,7 @@ fn menu (conn: &Connection) -> Result<()>{
 
             let mut stmt = conn.prepare("SELECT id, question, poll_duration, create_date, expiration_date, positive_votes, negative_votes FROM Poll")?;
             let poll_iter = stmt.query_map([], |row| {
-                Ok(Poll {
+                Ok(poll::Poll {
                     id: Uuid::parse_str(row.get::<_, String>(0)?.as_str()).unwrap(),
                     question: row.get(1)?,
                     poll_duration: row.get(2)?,
@@ -272,10 +272,10 @@ fn menu (conn: &Connection) -> Result<()>{
                         
                         match input_days_trimmed.parse::<i8>() {
                             Ok(7) => {
-                                Some(PollDuration::OneWeek)
+                                Some(poll::PollDuration::OneWeek)
                             },
                             Ok(30) => {
-                                Some(PollDuration::OneMonth) 
+                                Some(poll::PollDuration::OneMonth) 
                             }
                             _ => {
                                 println!("\nInvalid input. Please enter 7 or 30 Days.");
@@ -307,7 +307,7 @@ fn menu (conn: &Connection) -> Result<()>{
             println!("\nChoose one of the following votes to edit:");
     
             for (i, vote) in votes.iter().enumerate() {
-                println!("{}. {} - {}", i + 1, vote.choice, vote.question);
+                println!("{}. Vote: {} | Question: {} | Date: {}", i + 1, vote.choice, vote.poll_question, Local.timestamp_opt(vote.create_date, 0).unwrap().format("%d-%m-%Y %H:%M:%S"));
             }
     
             let mut choice = String::new();
@@ -375,7 +375,7 @@ fn menu (conn: &Connection) -> Result<()>{
     
             let mut stmt = conn.prepare("SELECT id, question, poll_duration, create_date, expiration_date, positive_votes, negative_votes FROM Poll")?;
             let poll_iter = stmt.query_map([], |row| {
-                Ok(Poll {
+                Ok(poll::Poll {
                     id: Uuid::parse_str(row.get::<_, String>(0)?.as_str()).unwrap(),
                     question: row.get(1)?,
                     poll_duration: row.get(2)?,
@@ -446,6 +446,12 @@ fn menu (conn: &Connection) -> Result<()>{
                 break;
             }
 
+            println!("\nChoose one of the following votes to delete:");
+
+            for (i, vote) in votes.iter().enumerate() {
+                println!("{}. Vote: {} | Question: {} | Date: {}", i + 1, vote.choice, vote.poll_question, Local.timestamp_opt(vote.create_date, 0).unwrap().format("%d-%m-%Y %H:%M:%S"));
+            }
+
             let mut choice = String::new();
             let mut confirmation = String::new();
                 
@@ -469,7 +475,7 @@ fn menu (conn: &Connection) -> Result<()>{
     
             let selected_vote = &votes[choice - 1];
     
-            println!("\nAre you sure you want to delete the vote: {} - '{}'? (y/n)", votes[choice - 1].choice, votes[choice - 1].question);
+            println!("\nAre you sure you want to delete the vote: {} - '{}'? (y/n)", votes[choice - 1].choice, votes[choice - 1].poll_question);
     
             io::stdin()
                 .read_line(&mut confirmation)
@@ -514,7 +520,29 @@ fn menu (conn: &Connection) -> Result<()>{
             }
 
             let _ = menu(conn);
+
+            break;
         } else if answer == "8" {
+            let votes = vote::get_votes(conn)?;
+
+            if votes.is_empty() {
+                println!("\nThere are no votes to show.");
+                let _ = menu(conn);
+                break;
+            }
+
+            for vote in votes {
+                
+                let create_date = Local.timestamp_opt(vote.create_date, 0).unwrap();
+
+                println!("\nQuestion: {} \nChoice: {} \nComment: {} \nCreate Date: {}", vote.poll_question, vote.choice, vote.comment, create_date.format("%d-%m-%Y %H:%M:%S"));
+            }
+
+            let _ = menu(conn);
+
+            break;
+        } 
+        else if answer == "9" {
             println!("\nExiting...");
             break;
         } else {
