@@ -93,7 +93,12 @@ pub fn create_vote (conn: &Connection, poll: Poll, vote: &str, comment: String) 
         choice: match vote.trim() {
             "y" => VoteChoice::Yes,
             "n" => VoteChoice::No,
-            _ => panic!("Invalid Vote"),
+            _ => {
+                println!("Invalid Vote");
+                return Err(Box::new(ValidationError::new(
+                    "Invalid Vote."
+                )));
+            }
         },
         comment: comment.trim().to_string(),
         voting_power: 1,

@@ -151,23 +151,61 @@ fn menu (conn: &Connection) -> Result<()>{
     
             let poll = &polls[choice - 1];
 
-            println!("\nYou vote? (y/n)");    
-            println!("Digit 'y' for yes and 'n' for no");
-    
-            io::stdin()
-                .read_line(&mut vote)
-                .expect("Error");
+            loop{
+                println!("\nYou vote? (y/n)");    
+                println!("Digit 'y' for yes and 'n' for no");
         
-            println!("\nYou want to add a comment? (y/n)");
-            io::stdin()
-                .read_line(&mut answer)
-                .expect("Error");
-        
-            if answer.trim() == "y" {
-                println!("\nWrite your comment:");
                 io::stdin()
-                    .read_line(&mut comment)
+                    .read_line(&mut vote)
                     .expect("Error");
+
+                    match vote.trim() {
+                    "y" => {
+                        break;
+                    }
+                    "n" => {
+                        break;
+                    }
+                    _ => {
+                        println!("\nInvalid input. Please enter 'y' or 'n'.");
+                        vote.clear();
+                        continue;
+                    }
+                };
+            }
+
+            loop{
+                println!("\nYou want to add a comment? (y/n)");
+                io::stdin()
+                    .read_line(&mut answer)
+                    .expect("Error");
+                
+                match answer.trim(){
+                    "y" => {
+                        loop{
+                            println!("\nWrite your comment:");
+                            io::stdin()
+                                .read_line(&mut comment)
+                                .expect("Error");
+                            if comment.chars().count() >= 100 {
+                                println!("\nComment is too long. Comment only can have up to 100 chars.");
+                                comment.clear();
+                                continue;
+                            } else{
+                                break;
+                            }
+                        }
+                        break;
+                    }
+                    "n" => {
+                        break;
+                    }
+                    _ => {
+                        println!("\nInvalid input. Please enter 'y' or 'n'.");
+                        answer.clear();
+                        continue;
+                    }
+                }
             }
 
             let _ = vote::create_vote(conn, poll.clone(), &vote, comment);
@@ -334,6 +372,7 @@ fn menu (conn: &Connection) -> Result<()>{
     
             let mut new_choice = String::new();
             let mut new_comment = String::new();
+            let mut answer = String::new();
     
             loop{
                 println!("\nYou vote? (y/n)");    
@@ -342,25 +381,50 @@ fn menu (conn: &Connection) -> Result<()>{
                 io::stdin()
                     .read_line(&mut new_choice)
                     .expect("Error");
-            
-                println!("\nYou want to add a comment? (y/n)");
-                io::stdin()
-                    .read_line(&mut new_comment)
-                    .expect("Error");
-            
-                if new_comment.trim() == "y" {
-                    println!("\nWrite your comment:");
-                    io::stdin()
-                        .read_line(&mut new_comment)
-                        .expect("Error");
-                }
-    
+                
                 if new_choice.trim() == "y" || new_choice.trim() == "n" {
                     break;
                 } else{
                     println!("\nInvalid input. Please enter 'y' or 'n'.");
+                    new_choice.clear();
+                    continue;
                 }
             }
+
+            loop{
+                println!("\nYou want to add a comment? (y/n)");
+                io::stdin()
+                    .read_line(&mut answer)
+                    .expect("Error");
+                
+                match answer.trim(){
+                    "y" => {
+                        loop{
+                            println!("\nWrite your comment:");
+                            io::stdin()
+                                .read_line(&mut new_comment)
+                                .expect("Error");
+                            if new_comment.chars().count() >= 100 {
+                                println!("\nComment is too long. Comment only can have up to 100 chars.");
+                                new_comment.clear();
+                                continue;
+                            } else{
+                                break;
+                            }
+                        }
+                        break;
+                    }
+                    "n" => {
+                        break;
+                    }
+                    _ => {
+                        println!("\nInvalid input. Please enter 'y' or 'n'.");
+                        answer.clear();
+                        continue;
+                    }
+                }
+            }
+
     
             let current_vote = &votes[choice - 1];
 
