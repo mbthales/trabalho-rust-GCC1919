@@ -7,13 +7,13 @@ use std::error::Error;
 
 use crate::poll::Poll;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum VoteChoice {
     Yes,
     No
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Vote {
     pub id: Uuid,
     pub choice:  VoteChoice,
@@ -146,13 +146,13 @@ pub fn create_vote (conn: &Connection, poll: Poll, vote: &str, comment: String) 
     Ok(vote)
 }
 
-pub fn edit_vote<'a>(
+pub fn edit_vote(
     conn: &Connection,
-    current_vote: &'a Vote,
-    selected_vote: &'a Vote,
+    current_vote: &Vote,
+    selected_vote: &Vote,
     new_choice: String,
     new_comment: String
-) -> Result<&'a Vote, Box<dyn Error>> {
+) -> Result<Vote, Box<dyn Error>> {
     if new_comment.len() > 100 {
         return Err(Box::new(ValidationError::new(
             "Comment is too long. Comment only can have up to 100 chars.",
@@ -201,13 +201,13 @@ pub fn edit_vote<'a>(
 
     println!("\nYour vote was edited successfully!");
 
-    Ok(selected_vote)
+    Ok(selected_vote.clone())
 }
 
-pub fn delete_vote<'a>(
+pub fn delete_vote(
     conn: &Connection,
-    selected_vote: &'a Vote
-) -> Result<&'a Vote, rusqlite::Error> {
+    selected_vote: &Vote
+) -> Result<Vote> {
     conn.execute(
         "DELETE FROM Vote WHERE id = ?1",
         [selected_vote.id.to_string().as_str()],
@@ -230,5 +230,5 @@ pub fn delete_vote<'a>(
 
     println!("\nYour vote was removed successfully!");
     
-    Ok(selected_vote)
+    Ok(selected_vote.clone())
 }
